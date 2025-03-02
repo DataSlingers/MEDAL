@@ -6,3 +6,6 @@ DistributionalPrincipalAutoencoder
 scikit-learn
 ipykernel
 umap
+umap-learn
+tqdm
+seaborn
