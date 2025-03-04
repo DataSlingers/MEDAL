@@ -9,3 +9,4 @@ umap
 umap-learn
 tqdm
 seaborn
+pandas
