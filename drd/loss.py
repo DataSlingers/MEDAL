@@ -14,6 +14,7 @@ def kl_divergence(z):
 def distillation_loss(student_z, teacher_z):
     """Encourages student embeddings to match teacher embeddings."""
     return F.mse_loss(student_z, teacher_z, reduction='mean')
+    #return F.l1_loss(student_z, teacher_z, reduction='mean')
 
 def get_loss_function(lambda_kl = 0, lambda_d = 0):
     """Returns a loss function that includes reconstruction + KL + distillation."""
