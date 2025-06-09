@@ -6,7 +6,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from tqdm import tqdm
 
 from torch.utils.data import DataLoader, TensorDataset
-from drd.loss import get_loss_function
+from src.drd.loss import get_loss_function
 
 class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 64), activation=nn.ReLU):
@@ -33,14 +33,15 @@ class AutoEncoder(nn.Module):
 
 
 class DRD(BaseEstimator, TransformerMixin):
-    def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 64), activation="ReLU",
-                 lambda_kl = 0, lambda_d = 0, lr=1e-3, epochs=50, batch_size=32, device=None):
+    def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",
+                 lambda_kl = 0, lambda_d = 10, lambda_reg=0, lr=1e-3, epochs=100, batch_size=32, device=None):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.hidden_dims = hidden_dims
         self.activation = getattr(nn, activation) if isinstance(activation, str) else activation
         self.lambda_kl = lambda_kl
         self.lambda_d = lambda_d
+        self.lambda_reg = lambda_reg
         self.lr = lr
         self.epochs = epochs
         self.batch_size = batch_size
@@ -52,6 +53,8 @@ class DRD(BaseEstimator, TransformerMixin):
         self.model = AutoEncoder(self.input_dim, self.latent_dim, self.hidden_dims, self.activation).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         self.criterion = get_loss_function(lambda_kl=self.lambda_kl, lambda_d=self.lambda_d)
+
+        self.last_encoder_layer = self.model.encoder[-1]
 
     def fit(self, X, y=None, teacher_Z=None, verbose=False):
 
@@ -76,6 +79,12 @@ class DRD(BaseEstimator, TransformerMixin):
                 x_batch_recon, student_z_batch = self.model(x_batch)
 
                 loss = self.criterion(x_batch, x_batch_recon, student_z_batch, teacher_z_batch)
+
+                l2_reg = 0.0
+                for param in self.last_encoder_layer.parameters():
+                    l2_reg += torch.sum(param ** 2)
+                loss = loss + self.lambda_reg * self.lambda_reg
+
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
@@ -97,6 +106,9 @@ class DRD(BaseEstimator, TransformerMixin):
         return X_recon.cpu().numpy()
     
     def reconstruct(self, X):
-        return self.inverse_transform(self.transform(X))
-    
-# if __name__ == "__main__":
+        self.model.eval()
+        X = torch.tensor(X, dtype=torch.float32).to(self.device)
+        with torch.no_grad():
+            _, z = self.model(X)
+            X_recon = self.model.decoder(z)
+        return X_recon.cpu().numpy()

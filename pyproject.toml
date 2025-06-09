@@ -1,0 +1,10 @@
+[project]
+name = "drd"
+version = "0.1.0"
+description = "Manifold Distillation for Dimension Reduction"
+authors = [{name = "Irene Chang"}]
+readme = "README.md"
+# requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["src"]  

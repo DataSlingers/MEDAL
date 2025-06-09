@@ -1,9 +1,11 @@
 import torch
 import torch.nn.functional as F
 
-def reconstruction_loss(x, x_recon):
+def reconstruction_loss(x, x_recon, type="mse"):
     """Standard MSE loss for reconstruction."""
-    return F.mse_loss(x_recon, x, reduction='mean')
+    if type == "mse":
+        loss = F.mse_loss(x_recon, x, reduction='mean')
+    return loss
 
 def kl_divergence(z):
     """KL divergence for Variational Autoencoder regularization."""
