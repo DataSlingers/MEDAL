@@ -7,26 +7,48 @@ from tqdm import tqdm
 
 from torch.utils.data import DataLoader, TensorDataset
 from src.drd.loss import get_loss_function
-
+    
 class AutoEncoder(nn.Module):
-    def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 64), activation=nn.ReLU):
+    def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128), activation=nn.ReLU):
         super(AutoEncoder, self).__init__()
-        self.encoder = self._build_layers(input_dim, hidden_dims, latent_dim, activation, encode=True)
-        self.decoder = self._build_layers(latent_dim, reversed(hidden_dims), input_dim, activation, encode=False)
 
-    def _build_layers(self, in_dim, hidden_dims, out_dim, activation, encode):
-        layers = []
-        prev_dim = in_dim
-        for dim in hidden_dims:
-            layers.append(nn.Linear(prev_dim, dim))
-            layers.append(activation())
-            prev_dim = dim
-        layers.append(nn.Linear(prev_dim, out_dim))
-        # if not encode:
-        #     layers.append(nn.Sigmoid())
-        return nn.Sequential(*layers)
+        # build encoder: input -> hidden_dims... -> latent
+        encoder_layers = []
+        prev_dim = input_dim
+        for h in hidden_dims:
+            encoder_layers.append(nn.Linear(prev_dim, h))
+            # encoder_layers.append(nn.BatchNorm1d(h))
+            encoder_layers.append(activation())
+            prev_dim = h
+        encoder_layers.append(nn.Linear(prev_dim, latent_dim))
+        self.encoder = nn.Sequential(*encoder_layers)
+
+        # build decoder: latent -> reversed(hidden_dims)... -> output
+        decoder_layers = []
+        prev_dim = latent_dim
+        for h in reversed(hidden_dims):
+            decoder_layers.append(nn.Linear(prev_dim, h))
+            # decoder_layers.append(nn.BatchNorm1d(h))
+            decoder_layers.append(activation())
+            prev_dim = h
+        decoder_layers.append(nn.Linear(prev_dim, input_dim))
+        self.decoder = nn.Sequential(*decoder_layers)
+
+        self._init_identity()
+
+    def _init_identity(self, eps=1e-3):
+        # initialize each residual block close to identity
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                try:
+                    nn.init.eye_(m.weight)
+                except Exception:
+                    # non-square weight: fallback to small random
+                    nn.init.normal_(m.weight, mean=0.0, std=eps)
+                nn.init.zeros_(m.bias)
 
     def forward(self, x):
+        # produce latent and reconstruction
         z = self.encoder(x)
         x_recon = self.decoder(z)
         return x_recon, z
@@ -34,7 +56,8 @@ class AutoEncoder(nn.Module):
 
 class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",
-                 lambda_kl = 0, lambda_d = 10, lambda_reg=0, lr=1e-3, epochs=100, batch_size=32, device=None):
+                 lambda_kl = 0, lambda_d = 10, lambda_reg=0, lr=1e-3, epochs=100, batch_size=32, 
+                 device=None, clip_grad_norm=1.0):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.hidden_dims = hidden_dims
@@ -46,17 +69,14 @@ class DRD(BaseEstimator, TransformerMixin):
         self.epochs = epochs
         self.batch_size = batch_size
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.clip_grad_norm = clip_grad_norm
 
-        self._build_model()
-
-    def _build_model(self):
-        self.model = AutoEncoder(self.input_dim, self.latent_dim, self.hidden_dims, self.activation).to(self.device)
+        self.model = AutoEncoder(self.input_dim, self.latent_dim, self.hidden_dims, activation = self.activation).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.criterion = get_loss_function(lambda_kl=self.lambda_kl, lambda_d=self.lambda_d)
+        # self.criterion = get_loss_function(lambda_kl=self.lambda_kl, lambda_d=self.lambda_d)
+        self.criterion = nn.MSELoss()
 
-        self.last_encoder_layer = self.model.encoder[-1]
-
-    def fit(self, X, y=None, teacher_Z=None, verbose=False):
+    def fit(self, X, y=None, teacher_Z=None, verbose=True):
 
         X = torch.tensor(X, dtype=torch.float32).to(self.device)
         if teacher_Z is not None:
@@ -70,45 +90,26 @@ class DRD(BaseEstimator, TransformerMixin):
             total_loss = 0
             for batch in loader:
                 self.optimizer.zero_grad()
-                if teacher_Z is not None:
-                    x_batch, teacher_z_batch = batch
-                else:
-                    x_batch = batch[0]
-                    teacher_z_batch = None
+                x_batch = batch[0]
+                teacher_z_batch = batch[1] if teacher_Z is not None else None
 
                 x_batch_recon, student_z_batch = self.model(x_batch)
 
-                loss = self.criterion(x_batch, x_batch_recon, student_z_batch, teacher_z_batch)
+                recon = self.criterion(x_batch, x_batch_recon)
 
-                l2_reg = 0.0
-                for param in self.last_encoder_layer.parameters():
-                    l2_reg += torch.sum(param ** 2)
-                loss = loss + self.lambda_reg * self.lambda_reg
+                if teacher_z_batch is not None:
+                    distill_loss = self.criterion(student_z_batch, teacher_z_batch)
+                    loss = recon + self.lambda_d * distill_loss
+                else:
+                    loss = recon
 
                 loss.backward()
+                # gradient clipping
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
                 self.optimizer.step()
                 total_loss += loss.item()
+            
             if verbose:
                 print(f"Epoch {epoch+1}/{self.epochs}, Loss: {total_loss / len(loader)}")
-
-    def transform(self, X):
-        self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            _, z = self.model(X)
-        return z.cpu().numpy()
-
-    def inverse_transform(self, Z):
-        self.model.eval()
-        Z = torch.tensor(Z, dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            X_recon = self.model.decoder(Z)
-        return X_recon.cpu().numpy()
-    
-    def reconstruct(self, X):
-        self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            _, z = self.model(X)
-            X_recon = self.model.decoder(z)
-        return X_recon.cpu().numpy()
+        
+        return self

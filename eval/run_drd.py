@@ -1,7 +1,8 @@
+# experiment.py
 import numpy as np, pandas as pd
-from pathlib import Path
 if not hasattr(np, "product"):
     np.product = np.prod
+from pathlib import Path
 from src.drd import DRD
 from sklearn.datasets import load_wine
 from sklearn.decomposition import PCA
@@ -11,99 +12,105 @@ from sklearn.model_selection import train_test_split
 from umap.parametric_umap import ParametricUMAP
 from sklearn.metrics import mean_squared_error
 from keras.losses import MeanSquaredError
+import os
+import argparse, json
+import torch, torch.nn as nn
+import umap
 
-import tensorflow as tf, os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "" 
+# compute all four losses
+def compute_losses(model, X, teacher_z=None, device=None):
+    model.eval()
+    X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
+    # embeddings
+    with torch.no_grad():
+        x_recon, student_z = model(X_tensor)
+    x_recon = x_recon.cpu().numpy()
+    student_z = student_z.cpu().numpy()
 
-# load data
-wine_data = load_wine()
-X_wine = wine_data.data
-y_wine = wine_data.target
-X_train, X_test, y_train, y_test = train_test_split(X_wine, y_wine, test_size=0.5, random_state=42)
+    recon_mse = mean_squared_error(X, x_recon)
+    if teacher_z is not None:
+        distill_mse = mean_squared_error(teacher_z, student_z)
+        return recon_mse, distill_mse
+    return recon_mse, None
 
-# teacher model PCA
-pca_pipeline = Pipeline([
-    ('scaler', StandardScaler()),
-    ('pca', PCA(n_components=2))
-])
-pca_pipeline.fit(X_train)
-scaler = pca_pipeline.named_steps['scaler']
-# transform data
-X_train_s = scaler.fit_transform(X_train)
-X_test_s = scaler.transform(X_test) # use scales from training set
+def run_simulation(var_name, var_values, param_dict):
+    wine_data = load_wine()
+    X_wine = wine_data.data
+    X_wine = StandardScaler().fit_transform(X_wine)  # scale features
 
-# get PCA embeddings
-teacher_pca_embeddings = pca_pipeline.transform(X_train)
-teacher_pca_test_embeddings = pca_pipeline.transform(X_test)
+    all_results = []
 
-distill_drd_train, distill_pumap_train = [], []
-recon_drd_train,   recon_pumap_train   = [], [] 
-distill_drd_test, distill_pumap_test = [], []
-recon_drd_test,   recon_pumap_test   = [], []
-lambda_ls = np.linspace(0.1, 1, 5)
-for lmda_val in lambda_ls:
-    # run UMAP-AE
-    p_umap = ParametricUMAP(
-        batch_size=256,
-        n_components=2,
-        parametric_reconstruction=True,
-        parametric_reconstruction_loss_weight=lmda_val,
-        parametric_reconstruction_loss_fcn=MeanSquaredError(),
-        autoencoder_loss=False,
-        verbose=False,
-        random_state=42,
-        low_memory      = True
-    )
-    p_umap.fit(X_train_s, landmark_positions = teacher_pca_embeddings)
+    for seed in range(10):
+        X_train, X_test = train_test_split(
+            X_wine, test_size=0.5, random_state=seed
+        )
+        param_dict["input_dim"] = X_train.shape[1]
 
-    # run AE whose distillation loss is MSE wrt UMAP
-    drd = DRD(input_dim=X_train.shape[1], latent_dim=2, epochs=10, 
-              batch_size=256, lambda_d = lmda_val)
-    drd.fit(X_train_s, teacher_Z = teacher_pca_embeddings)
+        # Suppose teacher_z comes from a small MLP teacher
+        # D_T = 3
+        # teacher_model = nn.Sequential(
+        #     nn.Linear(param_dict["input_dim"], 256), nn.ReLU(),
+        #     *[ layer for _ in range(D_T-1) for layer in (nn.Linear(256,256), nn.ReLU()) ],
+        #     nn.Linear(256, 2)
+        #     ).eval()
+        # with torch.no_grad():
+        #     teacher_z_train = teacher_model(torch.tensor(X_train, dtype=torch.float32)).numpy()
+        #     teacher_z_test = teacher_model(torch.tensor(X_test, dtype=torch.float32)).numpy()
+        u = umap.UMAP(n_components=2, random_state = 42)
+        teacher_z_train = u.fit_transform(X_train)
+        teacher_z_test = u.transform(X_test)
 
-    # TRAIN
-    # embedding/distillation loss on training
-    student_drd_embedding = drd.transform(X_train_s)
-    student_pumap_embedding = p_umap.transform(X_train_s)
-    d_drd_train = mean_squared_error(student_drd_embedding, teacher_pca_embeddings)
-    d_pumap_train = mean_squared_error(student_pumap_embedding, teacher_pca_embeddings)
+        exp_factor = [4, 5, 6, 7, 8, 9, 10, 11, 12]
+        for val in var_values:
+            param_dict[var_name] = val
+            for id, e in enumerate(exp_factor):
+                param_dict["hidden_dims"] = tuple(np.exp2(exp_factor[:id+1]).astype(int).tolist())
+                # DRD
+                student = DRD(**param_dict)
+                student.fit(X_train, teacher_Z=teacher_z_train, verbose=False)
 
-    # reconstruction loss on training
-    X_train_recon_drd = drd.inverse_transform(student_drd_embedding)
-    X_train_recon_pumap = p_umap.inverse_transform(student_pumap_embedding)
-    r_drd_train = mean_squared_error(X_train_recon_drd, X_train_s)
-    r_pumap_train = mean_squared_error(X_train_recon_pumap, X_train_s)
+                recon_mse_tr, distill_mse_tr = compute_losses(model = student.model, X = X_train, teacher_z = teacher_z_train)
+                recon_mse_te, distill_mse_te = compute_losses(model = student.model, X = X_test, teacher_z = teacher_z_test)
+                
+                # save results
+                all_results.append({
+                    "seed": seed,
+                    f"{var_name}": val,
+                    "exp": e,
+                    "distill_drd_train":    distill_mse_tr,
+                    "recon_drd_train":      recon_mse_tr,
+                    "distill_drd_test":     distill_mse_te,
+                    "recon_drd_test":       recon_mse_te,
+                })
+    return all_results
 
-    # TEST
-    # embedding/distillation loss on test
-    student_drd_test_embedding = drd.transform(X_test_s)
-    student_pumap_test_embedding = p_umap.transform(X_test_s)
-    d_drd_test = mean_squared_error(student_drd_test_embedding, teacher_pca_test_embeddings)
-    d_pumap_test = mean_squared_error(student_pumap_test_embedding, teacher_pca_test_embeddings)
+# save
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run DRD simulation on wine dataset")
+    parser.add_argument("--var_name", type=str, default="lambda_d", help="Variable name to vary")
+    parser.add_argument("--var_values", type=json.loads, help="Values for the variable")
+    parser.add_argument("--latent_dim", type=int, default=2, help="Dimensionality of the latent space")
+    parser.add_argument("--hidden_dims", type=int, nargs='+', default=[64,128,256,256], help="Hidden dimensions for the DRD model")
+    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
+    parser.add_argument("--lambda_d", type=float, default=1.0, help="Weight for the distillation loss")
+    parser.add_argument("--lambda_reg", type=float, default=0.0, help="Weight for the regularization loss")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer")
+    parser.add_argument("--clip_grad_norm", type=float, default=1.0, help="Gradient clipping norm")
+    parser.add_argument("--device", type=str, default=None, help="Device to run the model on (e.g., 'cuda', 'cpu')")
+    args = parser.parse_args()
+    print(args.var_values)
 
-    # reconstruction loss on test
-    X_test_recon_drd = drd.inverse_transform(student_drd_test_embedding)    
-    X_test_recon_pumap = p_umap.inverse_transform(student_pumap_test_embedding)
-    r_drd_test = mean_squared_error(X_test_recon_drd, X_test_s)
-    r_pumap_test = mean_squared_error(X_test_recon_pumap, X_test_s)
+    # construct param_dict
+    param_dict = {}
+    for arg in vars(args):
+        if arg in ["var_name", "var_values"]:
+            continue
+        param_dict[arg] = getattr(args, arg)
 
-    distill_drd_train.append(d_drd_train);   distill_pumap_train.append(d_pumap_train)
-    recon_drd_train.append(r_drd_train);     recon_pumap_train.append(r_pumap_train)
-    distill_drd_test.append(d_drd_test);   distill_pumap_test.append(d_pumap_test)
-    recon_drd_test.append(r_drd_test);     recon_pumap_test.append(r_pumap_test)
-
-
-results = pd.DataFrame({
-    "lambda":         lambda_ls,
-    "distill_drd_train":    distill_drd_train,
-    "distill_pumap_train":  distill_pumap_train,
-    "recon_drd_train":      recon_drd_train,
-    "recon_pumap_train":    recon_pumap_train,
-    "distill_drd_test":    distill_drd_test,
-    "distill_pumap_test":  distill_pumap_test,
-    "recon_drd_test":      recon_drd_test,
-    "recon_pumap_test":    recon_pumap_test,
-})
-Path("results").mkdir(exist_ok=True)               
-results.to_csv("results/umap_drd_losses.csv", index=False)
+    all_results = run_simulation(args.var_name, args.var_values, param_dict)
+    Path("results").mkdir(exist_ok=True)
+    df = pd.DataFrame(all_results)
+    df.to_csv(f"results/drd_losses_{args.var_name}_size&depth.csv", index=False)
