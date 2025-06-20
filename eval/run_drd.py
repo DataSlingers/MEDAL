@@ -3,114 +3,128 @@ import numpy as np, pandas as pd
 if not hasattr(np, "product"):
     np.product = np.prod
 from pathlib import Path
-from src.drd import DRD
-from sklearn.datasets import load_wine
-from sklearn.decomposition import PCA
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from umap.parametric_umap import ParametricUMAP
-from sklearn.metrics import mean_squared_error
-from keras.losses import MeanSquaredError
 import os
 import argparse, json
-import torch, torch.nn as nn
-import umap
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-# compute all four losses
-def compute_losses(model, X, teacher_z=None, device=None):
-    model.eval()
-    X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
-    # embeddings
-    with torch.no_grad():
-        x_recon, student_z = model(X_tensor)
-    x_recon = x_recon.cpu().numpy()
-    student_z = student_z.cpu().numpy()
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+from eval_utils import load_and_split, get_teacher_embeddings, make_student, fit_student, eval_student
 
-    recon_mse = mean_squared_error(X, x_recon)
-    if teacher_z is not None:
-        distill_mse = mean_squared_error(teacher_z, student_z)
-        return recon_mse, distill_mse
-    return recon_mse, None
+@dataclass
+class ExperimentConfig:
+    dataset: str
+    teacher_method: str
+    teacher_kwargs: Dict[str, Any]
+    student_kwargs: Dict[str, Any]
+    hidden_exponents: List[int]    
+    var_name: str                   
+    var_values: List[Any]
+    constrained: bool
+    symmetric: bool
+    optimize: str                   # "joint"/"encoder"/"decoder"
+    seeds: List[int] = field(default_factory=lambda: list(range(10)))
 
-def run_simulation(var_name, var_values, param_dict):
-    wine_data = load_wine()
-    X_wine = wine_data.data
-    X_wine = StandardScaler().fit_transform(X_wine)  # scale features
 
-    all_results = []
+def run_single_config(cfg: ExperimentConfig):
+    results = []
+    for seed in cfg.seeds:
+        # 1) load data
+        X_tr, X_te = load_and_split(cfg.dataset, seed=seed)
 
-    for seed in range(10):
-        X_train, X_test = train_test_split(
-            X_wine, test_size=0.5, random_state=seed
+        # 2) teacher embeddings
+        Z_tr, Z_te = get_teacher_embeddings(
+            cfg.teacher_method, X_tr, X_te, **cfg.teacher_kwargs
         )
-        param_dict["input_dim"] = X_train.shape[1]
 
-        # Suppose teacher_z comes from a small MLP teacher
-        # D_T = 3
-        # teacher_model = nn.Sequential(
-        #     nn.Linear(param_dict["input_dim"], 256), nn.ReLU(),
-        #     *[ layer for _ in range(D_T-1) for layer in (nn.Linear(256,256), nn.ReLU()) ],
-        #     nn.Linear(256, 2)
-        #     ).eval()
-        # with torch.no_grad():
-        #     teacher_z_train = teacher_model(torch.tensor(X_train, dtype=torch.float32)).numpy()
-        #     teacher_z_test = teacher_model(torch.tensor(X_test, dtype=torch.float32)).numpy()
-        u = umap.UMAP(n_components=2, random_state = 42)
-        teacher_z_train = u.fit_transform(X_train)
-        teacher_z_test = u.transform(X_test)
-
-        exp_factor = [4, 5, 6, 7, 8, 9, 10, 11, 12]
-        for val in var_values:
-            param_dict[var_name] = val
-            for id, e in enumerate(exp_factor):
-                param_dict["hidden_dims"] = tuple(np.exp2(exp_factor[:id+1]).astype(int).tolist())
-                # DRD
-                student = DRD(**param_dict)
-                student.fit(X_train, teacher_Z=teacher_z_train, verbose=False)
-
-                recon_mse_tr, distill_mse_tr = compute_losses(model = student.model, X = X_train, teacher_z = teacher_z_train)
-                recon_mse_te, distill_mse_te = compute_losses(model = student.model, X = X_test, teacher_z = teacher_z_test)
+        # 3) sweep over your var_name & hidden-dim settings
+        for val in cfg.var_values:
+            setattr(cfg, cfg.var_name, val)
+            for idx, depth in enumerate(cfg.hidden_exponents):
+                hidden_dims = tuple(2**i for i in cfg.hidden_exponents[:idx+1])
                 
-                # save results
-                all_results.append({
-                    "seed": seed,
-                    f"{var_name}": val,
-                    "exp": e,
-                    "distill_drd_train":    distill_mse_tr,
-                    "recon_drd_train":      recon_mse_tr,
-                    "distill_drd_test":     distill_mse_te,
-                    "recon_drd_test":       recon_mse_te,
-                })
-    return all_results
+                student = make_student(
+                    input_dim=X_tr.shape[1],
+                    hidden_dims=hidden_dims,
+                    # latent_dim=cfg.bottleneck_dim,
+                    # constrained=cfg.constrained,
+                    # symmetric=cfg.symmetric,
+                    **{cfg.var_name: val}
+                )
+                # 4) train & eval
+                fit_student(student, X_tr, Z_tr, optimize=cfg.optimize)
+                train_metrics = eval_student(student, X_tr, Z_tr)
+                test_metrics  = eval_student(student, X_te, Z_te)
 
-# save
+                # 5) record
+                results.append({
+                    "dataset": cfg.dataset,
+                    "teacher_method": cfg.teacher_method,
+                    "seed": seed,
+                    cfg.var_name: val,
+                    "depth": idx+1,
+                    "distill_drd_train":    train_metrics["distill_mse"],
+                    "recon_drd_train":      train_metrics["recon_mse"],
+                    "distill_drd_test":     test_metrics["distill_mse"],
+                    "recon_drd_test":       test_metrics["recon_mse"],
+                    "constrained": cfg.constrained,
+                    "symmetric":   cfg.symmetric,
+                    "optimize":    cfg.optimize,
+                })
+    return results
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run DRD simulation on wine dataset")
+    parser = argparse.ArgumentParser(description="Run DRD simulation on selected dataset")
+    # experiment setup
+    parser.add_argument("--dataset", type=json.loads, default='["wine"]', help="Dataset to run the simulation on")
+    parser.add_argument("--teacher_method", type=json.loads, default='["umap"]', help="Method to use for teacher embeddings (e.g., 'umap', 'pca')")
+    parser.add_argument("--seeds", type=json.loads, default="[0,1,2,3,4,5,6,7,8,9]", help="List of random seeds for reproducibility")
+
+    # teacher model config
+    parser.add_argument("--teacher_kwargs", type=json.loads, default='{"n_components": 2, "random_state": 0}', help="Hyperparameters for the teacher method")
+
+    # student model config
+    parser.add_argument("--student_kwargs", type=json.loads, default='{"latent_dim": 2, "epochs": 30, "batch_size": 256, "lambda_d": 1.0, "lambda_reg": 0.0, "lr": 1e-3, "clip_grad_norm": 1.0}', help="Hyperparameters for the student model")
+    parser.add_argument("--hidden_exponents", type=json.loads, default="[4, 5, 6]", help="List of hidden layer sizes as powers of 2 (e.g., [4, 5, 6] means [16, 32, 64])")
+    parser.add_argument("--constrained", action="store_true", help="Whether to use a constrained bottleneck")
+    parser.add_argument("--symmetric", action="store_true", help="Whether to use a symmetric architecture")
+    parser.add_argument("--optimize", type=str, default="joint", choices=["joint", "encoder", "decoder"], help="Optimization strategy for the student model")
+
+    # variable config
     parser.add_argument("--var_name", type=str, default="lambda_d", help="Variable name to vary")
     parser.add_argument("--var_values", type=json.loads, help="Values for the variable")
-    parser.add_argument("--latent_dim", type=int, default=2, help="Dimensionality of the latent space")
-    parser.add_argument("--hidden_dims", type=int, nargs='+', default=[64,128,256,256], help="Hidden dimensions for the DRD model")
-    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
-    parser.add_argument("--lambda_d", type=float, default=1.0, help="Weight for the distillation loss")
-    parser.add_argument("--lambda_reg", type=float, default=0.0, help="Weight for the regularization loss")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer")
-    parser.add_argument("--clip_grad_norm", type=float, default=1.0, help="Gradient clipping norm")
+
     parser.add_argument("--device", type=str, default=None, help="Device to run the model on (e.g., 'cuda', 'cpu')")
     args = parser.parse_args()
-    print(args.var_values)
 
-    # construct param_dict
-    param_dict = {}
-    for arg in vars(args):
-        if arg in ["var_name", "var_values"]:
-            continue
-        param_dict[arg] = getattr(args, arg)
+    config_list = []
+    for dataset in args.dataset:
+        for method in args.teacher_method:
+            print(f"Running simulation for dataset={dataset}, teacher_method={method}")
+            config = ExperimentConfig(
+                dataset=dataset,
+                teacher_method=method,
+                teacher_kwargs=args.teacher_kwargs,
+                student_kwargs=args.student_kwargs,
+                seeds=args.seeds,
+                hidden_exponents=args.hidden_exponents,  
+                var_name=args.var_name,      
+                var_values=args.var_values, 
+                constrained=args.constrained,
+                symmetric=args.symmetric,
+                optimize=args.optimize,
+            )
+            config_list.append(config)
+    
+    all_results = []
+    for cfg in config_list:
+        all_results += run_single_config(cfg)
+    
+    print(pd.DataFrame(all_results))
 
-    all_results = run_simulation(args.var_name, args.var_values, param_dict)
-    Path("results").mkdir(exist_ok=True)
-    df = pd.DataFrame(all_results)
-    df.to_csv(f"results/drd_losses_{args.var_name}_size&depth.csv", index=False)
+    # all_results = run_simulation(args.var_name, args.var_values, param_dict)
+    # Path("results").mkdir(exist_ok=True)
+    # df = pd.DataFrame(all_results)
+    # df.to_csv(f"results/drd_losses_{args.var_name}_size&depth.csv", index=False)
