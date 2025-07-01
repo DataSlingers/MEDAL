@@ -23,13 +23,13 @@ def get_loss_function(lambda_kl = 0, lambda_d = 0):
     
     def loss_fn(x, x_recon, student_z, teacher_z=None):
         recon_loss = reconstruction_loss(x, x_recon)
-        kl_loss = kl_divergence(student_z)
+        # kl_loss = kl_divergence(student_z)
         
         if teacher_z is not None:
             distill_loss = distillation_loss(student_z, teacher_z)
-            return recon_loss + lambda_kl * kl_loss + lambda_d * distill_loss
+            return recon_loss + lambda_d * distill_loss
         else:
-            return recon_loss + lambda_kl * kl_loss
+            return recon_loss 
     
     return loss_fn
 

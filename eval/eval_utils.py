@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 import umap
 from sklearn.decomposition import PCA
 from src.drd import DRD
+import pandas as pd
 
 def load_and_split(dataset_name, test_size=0.5, seed=0):
     """
@@ -14,9 +15,13 @@ def load_and_split(dataset_name, test_size=0.5, seed=0):
     """
     if dataset_name == "wine":
         data = load_wine().data
-    # elif dataset_name == "single_cell":
-    #     data = load_my_single_cell()
-    # … add more datasets as needed …
+    elif dataset_name == "single_cell":
+        data = pd.read_csv("Single-cell/data.csv")
+        data.drop(columns=["Unnamed: 0"], inplace=True)
+    elif dataset_name == "mnist":
+        from sklearn.datasets import fetch_openml
+        mnist = fetch_openml('mnist_784', version=1)
+        data = mnist.data.values
     X = StandardScaler().fit_transform(data)
     return train_test_split(X, test_size=test_size, random_state=seed)
 
@@ -35,6 +40,7 @@ def compute_losses(model, X, teacher_z=None, device=None):
         return recon_mse, distill_mse
     return recon_mse, None
 
+
 def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
     """
     method: str, e.g. "umap", "pca", "mlp"
@@ -48,7 +54,7 @@ def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
         Z_train = model.fit_transform(X_train)
         Z_test  = model.transform(X_test)
     elif method == "pca":
-        pca = PCA(n_components=teacher_kwargs.get("n_components", 2), random_state=0)
+        pca = PCA(n_components=teacher_kwargs.get("n_components", 2), random_state = teacher_kwargs.get("random_state", 0))
         Z_train = pca.fit_transform(X_train)
         Z_test  = pca.transform(X_test)
     # elif method == "mlp":
@@ -61,21 +67,26 @@ def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
         raise ValueError(f"Unknown teacher method {method}")
     return Z_train, Z_test
 
-def make_student(input_dim, hidden_dims, latent_dim = 2,
-                 symmetric=True, constrained=False, **drd_kwargs):
+def make_student(method, input_dim=None, hidden_dims=None, latent_dim = 2,
+                 symmetric=True, constrained=False, **student_kwargs):
     """
     Builds and returns a DRD student with the requested architecture.
     """
-    config = dict(
-      input_dim=input_dim,
-      hidden_dims=hidden_dims,
-      latent_dim=latent_dim,
-    #   symmetric=symmetric,
-    #   constrained=bottleneck_dim if constrained else None,
-      **drd_kwargs
-    )
-    
-    return DRD(**config)
+    if method == "drd":
+        if input_dim is None or hidden_dims is None:
+            raise ValueError("For DRD, input_dim and hidden_dims must be specified.")
+        config = dict(
+        input_dim=input_dim,
+        hidden_dims=hidden_dims,
+        latent_dim=latent_dim,
+        constrained = constrained,
+        **student_kwargs
+        )
+        return DRD(**config)
+    elif method == "pca":
+        return PCA(n_components=student_kwargs.get("n_components", 2), random_state = student_kwargs.get("random_state", 0))
+    else:
+        raise ValueError(f"Unknown student method {method}")
 
 def fit_student(student, X_train, Z_train, optimize="joint", **fit_kwargs):
     """
@@ -90,3 +101,7 @@ def eval_student(student, X, Z):
     rmse, dmse = compute_losses(model=student.model,
                                 X=X, teacher_z=Z)
     return {"recon_mse": rmse, "distill_mse": dmse}
+
+def eval_pca_baseline(pca_model, X_tr, X_te):
+    return {"recon_test_mse": mean_squared_error(X_te, pca_model.inverse_transform(pca_model.fit_transform(X_te))),
+            "recon_train_mse": mean_squared_error(X_tr, pca_model.inverse_transform(pca_model.transform(X_tr)))}
