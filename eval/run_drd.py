@@ -6,8 +6,9 @@ from pathlib import Path
 import os
 import argparse, json
 import pprint
+import torch
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
@@ -29,7 +30,8 @@ class ExperimentConfig:
     symmetric: bool = False
     optimize: str = "None"        # "joint"/"encoder"/"decoder"        
     seeds: List[int] = field(default_factory=lambda: list(range(10)))
-
+    device: str = "cpu"
+    verbose: bool = False
 
 def run_single_config(cfg: ExperimentConfig):
     if cfg.student_method == "drd":
@@ -39,6 +41,7 @@ def run_single_config(cfg: ExperimentConfig):
 
 def run_drd_config(cfg: ExperimentConfig):
     results = []
+    device = torch.device(cfg.student_kwargs.get("device", cfg.device) or("cuda" if torch.cuda.is_available() else "cpu"))
     for seed in cfg.seeds:
         # 1) load data
         X_tr, X_te = load_and_split(cfg.dataset, seed=seed)
@@ -55,21 +58,29 @@ def run_drd_config(cfg: ExperimentConfig):
             hidden_dims=cfg.hidden_layers,
             constrained=cfg.constrained,
             symmetric=cfg.symmetric,
+            device=device,
             **cfg.student_kwargs,
         )
         # 4) train & eval
-        fit_student(student, X_tr, Z_tr, optimize=cfg.optimize)
+        fit_student(student, X_tr, Z_tr, optimize=cfg.optimize, verbose=cfg.verbose)
         train_metrics = eval_student(student, X_tr, Z_tr)
         test_metrics  = eval_student(student, X_te, Z_te)
+        print(f'distill_train {train_metrics["distill_mse"]}, recon_train {train_metrics["recon_mse"]}')
+        if cfg.student_kwargs.get("save_model", False):
+            try:
+                model_path = Path(cfg.student_kwargs.get("save_model_path"))
+            except:
+                raise RuntimeError("Please provide a valid path for saving the model")
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(student.model.state_dict(), model_path)
+            print(f"Model saved to {model_path}")
 
         # 5) record
-        results.append({
+        res = dict({
             "dataset": cfg.dataset,
             "teacher_method": cfg.teacher_method,
             "student_method": cfg.student_method,
             "seed": seed,
-            cfg.student_var_name: cfg.student_var_value,
-            cfg.teacher_var_name: cfg.teacher_var_value,
             "hidden_layers": cfg.hidden_layers,
             "distill_train":    train_metrics["distill_mse"],
             "recon_train":      train_metrics["recon_mse"],
@@ -79,6 +90,11 @@ def run_drd_config(cfg: ExperimentConfig):
             "symmetric":   cfg.symmetric,
             "optimize":    cfg.optimize,
         })
+        if cfg.student_var_name is not None:
+            res[cfg.student_var_name] = cfg.student_var_value
+        if cfg.teacher_var_name is not None:
+            res[cfg.teacher_var_name] = cfg.teacher_var_value
+        results.append(res)
 
     return results
 
@@ -98,8 +114,6 @@ def run_pca_config(cfg: ExperimentConfig):
             "dataset": cfg.dataset,
             "student_method": cfg.student_method,
             "seed": seed,
-            cfg.student_var_name: cfg.student_var_value,
-            cfg.teacher_var_name: cfg.teacher_var_value,
             "depth": np.nan,
             "distill_train":    np.nan,
             "recon_train":      pca_metrics["recon_train_mse"],
@@ -134,23 +148,31 @@ if __name__ == "__main__":
     parser.add_argument("--var_values", type=json.loads, help="Values for the variable")
 
     parser.add_argument("--device", type=str, default=None, help="Device to run the model on (e.g., 'cuda', 'cpu')")
-    parser.add_argument('-o', "--output_filename", type=str)
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument('-o', "--output_filename", type=str, default=None)
     args = parser.parse_args()
 
     config_list = []
     student_var =  args.var_name.get("student")
     teacher_var =  args.var_name.get("teacher")
+    # If there's no student_var, we’ll iterate exactly once with s_val=None
+    student_vals = args.var_values.get("student", []) if student_var else [None]
+    # If there's no teacher_var, we’ll iterate exactly once with t_val=None
+    teacher_vals = args.var_values.get("teacher", []) if teacher_var else [None]
     for dataset in args.dataset:
         for t_method in args.teacher_method:
-            for t_args in args.var_values.get("teacher"):
-                for s_args in args.var_values.get("student"):
+            for t_val in teacher_vals:
+                for s_val in student_vals:
                     for opt in args.optimize:
                         teacher_kwargs_cp = args.teacher_kwargs.copy()
                         student_kwargs_cp = args.student_kwargs.copy()
-                        teacher_kwargs_cp.update({teacher_var: t_args})
-                        student_kwargs_cp.update({student_var: s_args, 
-                                                    "update_mode": opt,
-                                                    "latent_dim": t_args if teacher_var=="n_components" else 2})
+                        if teacher_var is not None:
+                            teacher_kwargs_cp[teacher_var] = t_val
+                        if student_var is not None:
+                            student_kwargs_cp[student_var] = s_val
+
+                        student_kwargs_cp["update_mode"] = opt
+
                         config = ExperimentConfig(
                             dataset=dataset,
                             teacher_method=t_method,
@@ -160,12 +182,14 @@ if __name__ == "__main__":
                             seeds=args.seeds,
                             hidden_layers=args.hidden_layers,  
                             student_var_name=student_var,   
-                            student_var_value= s_args,
+                            student_var_value= s_val,
                             teacher_var_name=teacher_var,
-                            teacher_var_value=t_args, 
+                            teacher_var_value=t_val, 
                             constrained=args.constrained,
                             symmetric=args.symmetric,
                             optimize=opt,
+                            device=args.device,
+                            verbose=args.verbose,
                         )
                         config_list.append(config)
         # Add PCA baseline config
@@ -184,6 +208,11 @@ if __name__ == "__main__":
         all_results += run_single_config(cfg)
 
     df = pd.DataFrame(all_results)
-    df.to_csv(f'{args.output_filename}.csv', index=False)
-    json.dump(args.__dict__, open(f'{args.output_filename}.json', 'w'), indent=2)
+    print(df)
+
+    if args.output_filename is None:
+        print("Results not saved, please provide an output filename")
+    else:
+        df.to_csv(f'{args.output_filename}.csv', index=False)
+        json.dump(args.__dict__, open(f'{args.output_filename}.json', 'w'), indent=2)
 
