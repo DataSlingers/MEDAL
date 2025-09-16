@@ -144,8 +144,8 @@ def run_pca_config(cfg: ExperimentConfig):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DRD simulation on selected dataset")
     # experiment setup
-    parser.add_argument("--dataset", type=json.loads, default='["wine"]', help="Dataset to run the simulation on")
-    parser.add_argument("--teacher_method", type=json.loads, default='["umap"]', help="Method to use for teacher embeddings (e.g., 'umap', 'pca')")
+    parser.add_argument("--dataset", type=str, default='wine', help="Dataset to run the simulation on")
+    parser.add_argument("--teacher_method", type=str, default='umap', help="Method to use for teacher embeddings (e.g., 'umap', 'pca')")
     parser.add_argument("--seeds", type=json.loads, default="[0,1,2,3,4,5,6,7,8,9]", help="List of random seeds for reproducibility")
 
     # teacher model config
@@ -162,30 +162,28 @@ if __name__ == "__main__":
 
     config_list = []
 
-    for dataset in args.dataset:
-        for t_method in args.teacher_method:
-                teacher_kwargs_cp = args.teacher_kwargs.copy()
-                student_kwargs_cp = args.student_kwargs.copy()
+    teacher_kwargs_cp = args.teacher_kwargs.copy()
+    student_kwargs_cp = args.student_kwargs.copy()
 
-                config = ExperimentConfig(
-                    dataset=dataset,
-                    teacher_method=t_method,
-                    student_method="drd",
-                    teacher_kwargs=teacher_kwargs_cp,
-                    student_kwargs=student_kwargs_cp,
-                    seeds=args.seeds,
-                    hidden_layers=args.hidden_layers,  
-                    device=args.device,
-                    verbose=args.verbose,
-                )
-                config_list.append(config)
-        # Add PCA baseline config
-        # pca_config = ExperimentConfig(
-        #     dataset=dataset,
-        #     student_method="pca",
-        #     seeds=args.seeds,
-        # )
-        # config_list.append(pca_config)
+    config = ExperimentConfig(
+        dataset=args.dataset,
+        teacher_method=args.teacher_method,
+        student_method="drd",
+        teacher_kwargs=teacher_kwargs_cp,
+        student_kwargs=student_kwargs_cp,
+        seeds=args.seeds,
+        hidden_layers=args.hidden_layers,  
+        device=args.device,
+        verbose=args.verbose,
+    )
+    config_list.append(config)
+    # Add PCA baseline config
+    # pca_config = ExperimentConfig(
+    #     dataset=dataset,
+    #     student_method="pca",
+    #     seeds=args.seeds,
+    # )
+    # config_list.append(pca_config)
     
     print(f"Running {len(config_list)} configurations...")
     all_results = []
