@@ -52,7 +52,7 @@ def run_drd_config(cfg: ExperimentConfig):
             Z_tr, _ = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
-                n_neighbors=tc["t_n_neighbors"], 
+                n_neighbors=tc["n_neighbors"], 
                 min_dist=tc["min_dist"],
                 random_state=seed,
             )
@@ -66,7 +66,7 @@ def run_drd_config(cfg: ExperimentConfig):
             Z_tr, _ = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
-                n_neighbors=tc["t_n_neighbors"],
+                n_neighbors=tc["n_neighbors"],
             )
         elif cfg.teacher_method == "tsne":
             Z_tr, _ = get_teacher_embeddings(
