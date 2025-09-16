@@ -12,18 +12,14 @@ from pathlib import Path
 import pickle
 
 def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False):
-    """
-    Returns:
-      X_train, X_test  — numpy arrays
-    """
     if dataset_name == "wine":
         data = load_wine().data
         if labels: labs = load_wine().target
-    elif dataset_name == "single_cell":
-        data = pd.read_csv("Single-cell/data.csv")
+    elif dataset_name == "gene_cancer":
+        data = pd.read_csv("~/drd/gene_cancer/data.csv")
         data.drop(columns=["Unnamed: 0"], inplace=True)
         if labels:
-            labs = pd.read_csv("Single-cell/labels.csv", index_col=0)
+            labs = pd.read_csv("~/drd/gene_cancer/labels.csv", index_col=0)
     elif dataset_name == "mnist":
         from sklearn.datasets import fetch_openml
         mnist = fetch_openml('mnist_784', version=1)
@@ -32,6 +28,12 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False):
     elif dataset_name == "diabetes":
         data = load_diabetes().data
         if labels: labs = load_diabetes().target
+    elif dataset_name == "single_cell":
+        data_dir = Path('/shared/share_mala/irchang/drd/GBM_data_and_metadata')
+        data_fp = data_dir / 'processed_GBM_raw_gene_counts.csv'
+        data = pd.read_csv(data_fp, index_col=0)
+        labels_fp = data_dir / 'GBM_labels_extracted.csv'
+        labs = pd.read_csv(labels_fp, index_col=0)
     X = StandardScaler().fit_transform(data)
     if labels:
         return train_test_split(X, labs, test_size=test_size, random_state=seed)
@@ -55,7 +57,7 @@ def compute_losses(model, X, teacher_z=None, device=None):
     return recon_mse, None
 
 
-def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
+def get_teacher_embeddings(method, X_train, X_test=None, **teacher_kwargs):
     """
     method: str, e.g. "umap", "pca", "mlp"
     teacher_kwargs: hyperparams for that method
@@ -68,19 +70,19 @@ def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
     if method == "umap":
         model = umap.UMAP(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
-        Z_test  = model.transform(X_test)
+        Z_test  = model.transform(X_test) if X_test is not None else None
     elif method == "pca":
         model = PCA(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
-        Z_test  = model.transform(X_test)
+        Z_test  = model.transform(X_test) if X_test is not None else None
     elif method == "tsne":
         model = TSNE(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
-        Z_test  = model.transform(X_test)
+        Z_test  = model.transform(X_test) if X_test is not None else None
     elif method == "isomap":
         model = Isomap(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
-        Z_test  = model.transform(X_test)
+        Z_test  = model.transform(X_test) if X_test is not None else None
     # elif method == "mlp":
     #     # build a small MLP as teacher
     #     teacher = make_mlp(input_dim=X_train.shape[1], **teacher_kwargs).eval()
@@ -102,10 +104,7 @@ def get_teacher_embeddings(method, X_train, X_test, **teacher_kwargs):
     return Z_train, Z_test
 
 def make_student(method, input_dim=None, hidden_dims=None, latent_dim = 2,
-                 symmetric=True, constrained=False, **student_kwargs):
-    """
-    Builds and returns a DRD student with the requested architecture.
-    """
+                 **student_kwargs):
     if method == "drd":
         if input_dim is None or hidden_dims is None:
             raise ValueError("For DRD, input_dim and hidden_dims must be specified.")
@@ -113,7 +112,6 @@ def make_student(method, input_dim=None, hidden_dims=None, latent_dim = 2,
         input_dim=input_dim,
         hidden_dims=hidden_dims,
         latent_dim=latent_dim,
-        constrained = constrained,
         **student_kwargs
         )
         return DRD(**config)
@@ -121,15 +119,6 @@ def make_student(method, input_dim=None, hidden_dims=None, latent_dim = 2,
         return PCA(n_components=student_kwargs.get("n_components", 2), random_state = student_kwargs.get("random_state", 0))
     else:
         raise ValueError(f"Unknown student method {method}")
-
-def fit_student(student, X_train, Z_train, optimize="joint", **fit_kwargs):
-    """
-    optimize: "joint", "encoder", or "decoder"
-    """
-    student.fit(X_train, teacher_Z=Z_train,
-                # optimize=optimize, 
-                **fit_kwargs)
-    return student
 
 def eval_student(student, X, Z):
     rmse, dmse = compute_losses(model=student.model,
@@ -140,3 +129,47 @@ def eval_pca_baseline(pca_model, X_tr, X_te):
     pca_model.fit(X_tr)
     return {"recon_test_mse": mean_squared_error(X_te, pca_model.inverse_transform(pca_model.transform(X_te))),
             "recon_train_mse": mean_squared_error(X_tr, pca_model.inverse_transform(pca_model.transform(X_tr)))}
+
+def process_single_cell_data(data_fp, labels_fp = None):
+    sep_regex = r'\s(?=(?:[^"]*"[^"]*")*[^"]*$)'
+    print("Loading single-cell data from:", data_fp)
+    df = pd.read_csv(
+        data_fp,
+        sep=sep_regex,
+        engine="python",
+        quotechar='"',
+        header=0,
+        skipinitialspace=True
+    )
+
+    # strip any remaining quotes from the column names
+    df.columns = [c.strip('"') for c in df.columns]
+    df = df.T
+    if labels_fp is not None:
+        meta = pd.read_csv(
+            labels_fp,
+            sep=sep_regex,
+            engine="python",
+            quotechar='"',
+            skipinitialspace=True  # drop any spurious space after splitting
+        )
+
+        # 3) Clean up column names (strip any remaining quotes)
+        meta.columns = [col.strip('"') for col in meta.columns]
+
+        # 4) (Optional) Convert obvious numeric columns
+        numeric = [
+            "Total_reads","Unique_reads","Unique_reads_percent",
+            "Splice_sites_total","Splice_sites_Annotated","Splice_sites_GT.AG",
+            "Splice_sites_GC.AG","Splice_sites_AT.AC","Splice_sites_non_canonical",
+            "Multimapping_reads_percent","Unmapped_mismatch","Unmapped_short",
+            "Unmapped_other","ERCC_reads","Non_ERCC_reads","ERCC_to_non_ERCC",
+            "Genes_detected","Cluster_2d"
+        ]
+        for c in numeric:
+            if c in meta:
+                meta[c] = pd.to_numeric(meta[c], errors="coerce")
+        meta.index = meta.index.str.replace(r'^"|"$', '', regex=True)
+        return df, meta
+
+    return df

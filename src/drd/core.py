@@ -15,6 +15,7 @@ class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128), activation=nn.ReLU, bottleneck_activation=None):
         super().__init__()
 
+        # ENCODER BLOCK
         encoder_layers = []
         prev_dim = input_dim
         for e_id, h in enumerate(hidden_dims):                
@@ -29,6 +30,7 @@ class AutoEncoder(nn.Module):
         print("encoder layers:", encoder_layers)
         self.encoder = nn.Sequential(*encoder_layers)
 
+        # DECODER BLOCK
         decoder_layers = []
         prev_dim = latent_dim
 
@@ -54,12 +56,10 @@ class AutoEncoder(nn.Module):
                 try:
                     nn.init.eye_(m.weight)
                 except Exception:
-                    # non-square weight: fallback to small random
                     nn.init.normal_(m.weight, mean=0.0, std=eps)
                 nn.init.zeros_(m.bias)
 
     def forward(self, x):
-        # produce latent and reconstruction
         z = self.encoder(x)
         x_recon = self.decoder(z)
         return x_recon, z
@@ -73,8 +73,6 @@ class DRD(BaseEstimator, TransformerMixin):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
         Args:
-
-            - update_model: "joint" | "sep_freeze" | "sep_shared" | "sep_opt"
         """
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -107,7 +105,6 @@ class DRD(BaseEstimator, TransformerMixin):
             eta_min=eta_min1,    
         )
         self.scheduler2 = None
-        # two optimizers if using separate-optimizers
         self.criterion = nn.MSELoss().to(self.device)
 
     def fit(self, X, teacher_Z=None, verbose=True,
@@ -117,39 +114,18 @@ class DRD(BaseEstimator, TransformerMixin):
             patience=3, return_on_stable=False,
             # checkpointin
             save_dir = None, prefix=None,
+            print_tag=False
             ):
         '''
-        Phase: None | "pretrain" | "finetune". None runs normal training
-        Helpers
-        '''
-        @torch.no_grad()
-        def _align_teacher_to_latent(t_batch, z_batch):
-            """
-            Align teacher embedding t_batch (B, d_t) to current latent z_batch (B, d_z) via orthogonal Procrustes (rotation) without adding parameters.
-            """
-            # center both for stability
-            z0 = z_batch.detach()
-            t0 = t_batch.detach()
-            z_mean = z0.mean(dim=0, keepdim=True)
-            t_mean = t0.mean(dim=0, keepdim=True)
-            Zc = z0 - z_mean
-            Tc = t0 - t_mean
-            B, dz = Zc.shape
-            dt = Tc.shape[1]
-            if dt == dz:
-                C = Tc.T @ Zc  # (d,d)
-                U, S, Vh = torch.linalg.svd(C, full_matrices=False)
-                R = U @ Vh
-                if torch.linalg.det(R) < 0:  
-                    U[:, -1] *= -1
-                    R = U @ Vh  
-                T_al = Tc @ R + z_mean  # match z coord system
-            else:
-                raise ValueError("Teacher and latent dims must match for Procrustes alignment")
-            return T_al  # (B, dz)
-        '''
-        phase:  "pretrain" only reconstruction. Save weights to pretrained_path, 
-                "finetune" load weights from pretrained_path before starting, then train with distill loss.
+        phase:              "pretrain" only reconstruction. Save weights to pretrained_path, 
+                            "finetune" load weights from pretrained_path before starting, then train with distill loss.
+        target_bands:       list of (min, max) tuples for distill loss bands to target
+        stability_window:   number of epochs to consider for stability
+        patience:           number of consecutive stable checks to confirm stability
+        return_on_stable:   if True, stop training once a stable band checkpoint is captured
+        save_dir:           directory to save checkpoints
+        prefix:             prefix for checkpoint filenames
+        print_tag:          if True, print training progress to console
         '''
 
         if phase == "finetune" and pretrained_path:
@@ -182,7 +158,7 @@ class DRD(BaseEstimator, TransformerMixin):
                 self.opt_joint.zero_grad() 
                 x_rec, z = self.model(x)
                 recon_loss = self.criterion(x_rec, x)
-                if phase == "pretrain" or teacher_z is None:
+                if phase == "pretrain" or teacher_z is None: # during pretraining, no distill loss
                     loss = recon_loss
                     distill_loss = torch.tensor(0.0, device=self.device)
                 else:
@@ -190,8 +166,7 @@ class DRD(BaseEstimator, TransformerMixin):
                         lambda_d = self.lambda_d * (epoch / self.warmup)
                     else:
                         lambda_d = self.lambda_d
-                    t_target = _align_teacher_to_latent(teacher_z, z)
-                    distill_loss = self.criterion(z, t_target)
+                    distill_loss = self.criterion(z, teacher_z)
                     loss = recon_loss + lambda_d * distill_loss
 
                 loss.backward()
@@ -202,6 +177,7 @@ class DRD(BaseEstimator, TransformerMixin):
                 epoch_recon_loss += recon_loss.item()
                 num_batches += 1
 
+            # checking if we need to switch scheduler
             if epoch <= self.T_max: self.scheduler1.step() # for pretraining, just set T_max = epochs
             else: 
                 if self.scheduler2 is None:
@@ -258,17 +234,18 @@ class DRD(BaseEstimator, TransformerMixin):
                             else:
                                 best_recon_in_band[current_band] = (avg_recon, None)
 
-                            if return_on_stable: # stop early once a stable checkpoint is captured?
+                            if return_on_stable:
                                 tune.report({'distill_loss': epoch_distill_loss / num_batches, 'recon_loss': epoch_recon_loss / num_batches})
                                 early_stopped = True
                                 break
                 else:
                     stable_counter = 0  # reset if not in a band or not enough history
 
+            # reporting losses
             if (epoch + 1) % report_interval == 0 or epoch == self.epochs - 1:
-                if phase == "pretrain":
-                    print({'distill_loss': epoch_distill_loss / num_batches, 'recon_loss': epoch_recon_loss / num_batches})
-                    
+                if phase == "pretrain" or print_tag:
+                    print(f'Iter {(epoch + 1)}', {'distill_loss': epoch_distill_loss / num_batches, 'recon_loss': epoch_recon_loss / num_batches})
+
                 else:
                     tune.report({'distill_loss': epoch_distill_loss / num_batches, 'recon_loss': epoch_recon_loss / num_batches})
             
