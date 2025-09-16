@@ -52,8 +52,8 @@ def run_drd_config(cfg: ExperimentConfig):
             Z_tr, _ = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
-                n_neighbors=tc["n_neighbors"], 
-                min_dist=tc["min_dist"],
+                n_neighbors=tc["n_neighbors"] if "n_neighbors" in tc else 15, 
+                min_dist=tc["min_dist"] if "min_dist" in tc else 0.1,
                 random_state=seed,
             )
         elif cfg.teacher_method == "pca":
@@ -66,14 +66,14 @@ def run_drd_config(cfg: ExperimentConfig):
             Z_tr, _ = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
-                n_neighbors=tc["n_neighbors"],
+                n_neighbors=tc["n_neighbors"] if "n_neighbors" in tc else 15,
             )
         elif cfg.teacher_method == "tsne":
             Z_tr, _ = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
-                perplexity=tc["perplexity"],
-                learning_rate=tc["learning_rate"],
+                perplexity=tc["perplexity"] if "perplexity" in tc else 30,
+                learning_rate=tc["learning_rate"]   if "learning_rate" in tc else 200,
             )
            
         student = make_student(
