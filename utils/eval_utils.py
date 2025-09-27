@@ -3,38 +3,57 @@ from sklearn.metrics import mean_squared_error
 from sklearn.datasets import load_wine, load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.manifold import TSNE, Isomap
+from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
 import umap
 from sklearn.decomposition import PCA
 from src.drd import DRD
 import pandas as pd
 from pathlib import Path
 import pickle
+import scanpy as sc
 
 def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False):
+    X = None
     if dataset_name == "wine":
         data = load_wine().data
         if labels: labs = load_wine().target
+        X = StandardScaler().fit_transform(data)
     elif dataset_name == "gene_cancer":
         data = pd.read_csv("~/drd/gene_cancer/data.csv")
         data.drop(columns=["Unnamed: 0"], inplace=True)
         if labels:
             labs = pd.read_csv("~/drd/gene_cancer/labels.csv", index_col=0)
+        X = StandardScaler().fit_transform(data)
     elif dataset_name == "mnist":
         from sklearn.datasets import fetch_openml
         mnist = fetch_openml('mnist_784', version=1)
         data = mnist.data.values[:10000, :]
         if labels: labs = mnist.target.values[:10000]
+        X = StandardScaler().fit_transform(data)
     elif dataset_name == "diabetes":
         data = load_diabetes().data
         if labels: labs = load_diabetes().target
+        X = StandardScaler().fit_transform(data)
     elif dataset_name == "single_cell":
         data_dir = Path('/shared/share_mala/irchang/drd/GBM_data_and_metadata')
         data_fp = data_dir / 'processed_GBM_raw_gene_counts.csv'
         data = pd.read_csv(data_fp, index_col=0)
         labels_fp = data_dir / 'GBM_labels_extracted.csv'
         labs = pd.read_csv(labels_fp, index_col=0)
-    X = StandardScaler().fit_transform(data)
+        labs['cluster_id'] = labs['cluster_id'].astype(str)
+        X = StandardScaler().fit_transform(data)
+        pca = PCA(n_components=500, random_state=seed)
+        X = pca.fit_transform(X)
+    elif dataset_name == "hydra":
+        data = pd.read_csv('/user/bnc2119/drd/Hydra500_official.csv')
+        labs = data['labels'].astype('str')
+        X = data.drop('labels', axis=1).to_numpy()
+    elif dataset_name == "pbmc":
+        # OG dim (5858, 33694)
+        adata  = sc.read_h5ad('/user/bnc2119/drd/inDrops_afterscale.h5ad') 
+        print("projecting onto first 200 PCs")
+        X = PCA(n_components=200, random_state=seed).fit_transform(adata.layers['scaledata'])
+        labs = adata.obs['CellType']
     if labels:
         return train_test_split(X, labs, test_size=test_size, random_state=seed)
     return train_test_split(X, test_size=test_size, random_state=seed)
@@ -83,12 +102,14 @@ def get_teacher_embeddings(method, X_train, X_test=None, **teacher_kwargs):
         model = Isomap(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
         Z_test  = model.transform(X_test) if X_test is not None else None
-    # elif method == "mlp":
-    #     # build a small MLP as teacher
-    #     teacher = make_mlp(input_dim=X_train.shape[1], **teacher_kwargs).eval()
-    #     with torch.no_grad():
-    #         Z_train = teacher(torch.tensor(X_train, dtype=torch.float32)).numpy()
-    #         Z_test  = teacher(torch.tensor(X_test,  dtype=torch.float32)).numpy()
+    elif method == "spectral":
+        model = SpectralEmbedding(**teacher_kwargs_cp)
+        Z_train = model.fit_transform(X_train)
+        Z_test  = model.transform(X_test) if X_test is not None else None
+    elif method == "phate":
+        model = phate.PHATE(**teacher_kwargs_cp)
+        Z_train = model.fit_transform(X_train)
+        Z_test  = model.transform(X_test) if X_test is not None else None
     else:
         raise ValueError(f"Unknown teacher method {method}")
     
