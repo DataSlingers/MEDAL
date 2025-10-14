@@ -1,7 +1,8 @@
 from ray import tune
 from ray.tune.schedulers import PopulationBasedTraining, AsyncHyperBandScheduler
 from ray.tune import CLIReporter
-from utils.eval_utils import make_student, load_and_split, get_teacher_embeddings, fit_student, eval_student
+from utils.eval_utils import make_student, load_and_split, get_teacher_embeddings, eval_student
+from utils.process_astro import clean_astro_data # FIX THIS
 from torch.utils.data import DataLoader, TensorDataset
 import torch, torch.nn as nn
 import tqdm, os
@@ -9,107 +10,59 @@ import torch.nn.functional as F
 import numpy as np
 from ray import train
 import os, tempfile
-import ray.cloudpickle as pickle
-from ray.train import Checkpoint
+import scanpy as sc
+from pathlib import Path
 
 DEVICE = "cuda"
-dataset_name = "single_cell"
-teacher_name = "isomap_neigh10"
+dataset_name = ["macaque"]
+teacher_name = "tsne"
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
-path = f"{PATH_PREFIX}/tune_results/activation_{dataset_name}_{teacher_name}.csv"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2,4,5,6,7" 
-
-# HYPERPARAMETER_CONFIG = {
-#     "single_cell": {
-#         "lr": tune.loguniform(1e-5, 1e-1),  # Multiply by these factors
-#         "lambda_d": tune.choice([25, 50, 100, 200, 500, 1000, 1500, 2000, 3000]),
-#         "eta_min1": tune.loguniform(1e-12, 1e-5),  # Multiply by these factors
-#         "eta_min2": tune.loguniform(1e-20, 1e-12), # More aggressive mutation for eta_min2
-#         "hidden_dims": tune.choice([[1000, 800, 400, 200],
-#                                    [200, 400, 80, 1000],
-#                                    [8010]]),
-#         "max_epochs": tune.choice([1500, 100000, 150000]),
-#         "T_max_ratio": tune.choice([0.25, 0.5, 0.75, 0.9]),
-#     },
-#     "wine": {
-#         "lr": tune.loguniform(1e-3, 1e-2),  
-#         "lambda_d": tune.choice([1500, 2000, 3000, 4000, 5000]),
-#         "eta_min1": tune.loguniform(1e-8, 1e-6), 
-#         "eta_min2": tune.loguniform(1e-20, 1e-14), 
-#         "hidden_dims": tune.choice([
-#             [708, 531, 354, 177],
-#             [885, 708, 531, 354, 177],
-#             [1000, 750, 500, 250],
-#             [2000, 1500, 1000, 500],
-#             [2000, 1500, 1000, 500, 250]
-#         ]),
-#         "activation": tune.choice(["ReLU", None]),
-#         "max_epochs": tune.choice([100000, 120000, 130000, 150000, 200000]),
-#         "T_max_ratio": tune.choice([0.6, 0.7, 0.8, 0.9]),
-#     },
-#     "mnist": { 
-#         "lr": tune.loguniform(1e-5, 1e-1), 
-#         "lambda_d": tune.choice([25, 50, 100, 200, 500, 1000, 1500, 2000, 3000]),
-#         "eta_min1": tune.loguniform(1e-12, 1e-5), 
-#         "eta_min2": tune.loguniform(1e-20, 1e-12),
-#         "hidden_dims": tune.choice([
-#             [50000],
-#             [20000, 10000],
-#             [10000, 5000, 2500, 1000],
-#             [50000, 10000, 5000, 2500, 1000],
-#             [10000, 5000, 2500, 1000, 50000],
-#             [10000]
-#         ]),
-#         "activation": tune.choice(["ReLU", None]),
-#         "max_epochs": tune.choice([1500, 2000, 2500, 3000]),
-#         "T_max_ratio": tune.choice([0.6, 0.7, 0.8, 0.9]),
-#     },
-#     "diabetes": { 
-#         "lr": tune.loguniform(1e-5, 1e-1), 
-#         "lambda_d": tune.choice([25, 50, 100, 200, 500, 1000, 1500, 2000, 3000]),
-#         "eta_min1": tune.loguniform(1e-12, 1e-5), 
-#         "eta_min2": tune.loguniform(1e-20, 1e-12),
-#         "hidden_dims": tune.choice([
-#             [441],
-#             [882],
-#             [441, 220, 110],
-#             [441, 220, 110, 55],
-#             [2000, 441, 220, 110],
-#             [441, 220, 110, 2000]
-#         ]),
-#         "activation": tune.choice(["ReLU", None]),
-#         "max_epochs": tune.choice([3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]),
-#         "T_max_ratio": tune.choice([0.6, 0.7, 0.8, 0.9]),
-#     }
-# }
+# path = f"{PATH_PREFIX}/tune_results/activation_{dataset_name}_{teacher_name}.csv"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,3,5,6,7" 
 
 INIT_CONFIG = {
     "gene_cancer": {
+        "data_name": "gene_cancer",
         "teacher": "tsne",
         "t_n_neighbors": 10,
         "perplexity": 30,
         "learning_rate": 200,
         "lr": 0.0001,  
         "lambda_d": 1500,
-        "eta_min1": 1e-16, 
+        "eta_min1": tune.grid_search([1e-8, 1e-9,1e-10,1e-11]), 
         "eta_min2": 0.0, 
-        "hidden_dims": tune.grid_search([
-            # [2000, 800, 400, 200],
+        "hidden_dims": 
+        [1000, 1000, 1000, 1000],
+        # tune.grid_search([
+            # position
+            #  [2000, 800, 400, 200],
             #  [800, 2000, 400, 200],
             #  [800, 400, 2000, 200],
             #  [800, 400, 200, 2000]
-            [800, 800, 800],
-             ]),
-        "activation": tune.grid_search(["ReLU", "SELU"]),
-        "bottleneck_activation": tune.grid_search(["ReLU", "SELU", None]),
+            # depth
+            # [1000, 1000, 1000, 1000],
+            # [1088, 1088],
+            # [934, 934, 934, 934, 934, 934],
+            # [881, 881, 881, 881, 881, 881, 881, 881]
+            # size
+            # [200, 200],
+            # [500, 500],
+            # [1000, 1000],
+            # [5000, 5000]
+        # ]),
+        "activation": "SELU",
+        # tune.grid_search(["ReLU", "SELU"]),
+        "bottleneck_activation": None,
+        # tune.grid_search(["ReLU", "SELU", None]),
         "max_epochs": 1500,
         "T_max_ratio": 2/3,
         "warmup": 0,  
-        "seed": tune.grid_search([0, 1, 2]),
+        "seed": 0,
         "batch_size": 100
     },
     "wine": {
-        "teacher": "tsne",
+        "data_name": "wine",
+        "teacher": "umap",
         "t_n_neighbors": 15,
         "perplexity": 30,
         "learning_rate": 200,
@@ -117,27 +70,37 @@ INIT_CONFIG = {
         "lambda_d": 7000,
         "eta_min1": 6.076040435352558e-08,
         "eta_min2": 1.2312179372780289e-17,
-        "hidden_dims": tune.grid_search([
-            # [1500, 1000, 500, 250, 2000],
-            # [2000, 1500, 1000, 500, 250],
-            # [1500, 2000, 1000, 500, 250],
-            # [1500, 1000, 2000, 500, 250],
-            # [1500, 1000, 500, 2000, 250],
+        "hidden_dims":  
+        # [258, 258, 258, 258],
+        tune.grid_search([
+            [890,177,126,95],
+            [177,890,126,95],
+            [177,126,890,95],
+            [177,126,95,890],
+            # depth
             # [200, 200, 200, 200, 200, 200],
-            # [447, 447],
-            [258, 258, 258, 258],
+            # [443, 443],
+            # [258, 258, 258, 258],
             # [169, 169, 169, 169, 169, 169, 169, 169]
+            # size
+            # [500, 500],
+            # [1000, 1000],
+            # [5000, 5000],
+            # [10000, 10000]
         ]),
-        "activation": tune.grid_search(["ReLU", "SELU"]),
-        "bottleneck_activation": tune.grid_search(["ReLU", "SELU", None]),
+        "activation": "SELU",
+        # tune.grid_search(["ReLU", "SELU"]),
+        "bottleneck_activation": None,
+        # tune.grid_search(["ReLU", "SELU", None]),
         'max_epochs': 200000, 
         'T_max_ratio': 0.7,
         "warmup": 0, 
-        "seed": tune.grid_search([0, 1, 2]),
+        "seed": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         "batch_size": 100
     },
     "mnist": { # 10000
-        "teacher": "tsne",
+        "data_name": "mnist",
+        "teacher": "umap",
         "t_n_neighbors": 15,
         "perplexity": 30,
         "learning_rate": 200,
@@ -145,27 +108,37 @@ INIT_CONFIG = {
         "lambda_d": 5000,
         "eta_min1": 7.256237e-10,
         "eta_min2": 1.587436e-16,
-        "hidden_dims": tune.grid_search([
-            # [50000, 10000, 5000, 2500, 1000],
-            # [10000, 5000, 2500, 1000, 50000],
-            # [10000, 50000, 5000, 2500, 1000],
-            # [10000, 5000, 50000, 2500, 1000],
-            # [10000, 5000, 2500, 50000, 1000],
-            # [1323, 1323],
-            [764, 764, 764, 764],
-            # [592, 592, 592, 592, 592, 592],
-            # [500, 500, 500, 500, 500, 500, 500, 500],
-            # [441, 441, 441, 441, 441, 441, 441, 441, 441, 441]
+        "hidden_dims": 
+        # [1000, 1000, 1000, 1000, 1000],
+        tune.grid_search([
+            [1585, 1194, 789, 599, 393],
+            [1194, 1585, 789, 599, 393],
+            [1194, 789, 1585, 599, 393],
+            [1194, 789, 599, 1585, 393],
+            [1194, 789, 599, 393, 1585],
+            # depth
+            # [1000, 1000, 1000, 1000, 1000],
+            # [1363, 1363, 1363],
+            # [830, 830, 830, 830, 830, 830, 830],
+            # [726, 726, 726, 726, 726, 726, 726, 726],
+            # size
+            # [200, 200, 200],
+            # [500, 500, 500],
+            # [1000, 1000, 1000],
+            # [5000, 5000, 5000],
         ]),
-        "activation": tune.grid_search(["ReLU", "SELU"]),
-        "bottleneck_activation": tune.grid_search(["ReLU", "SELU", None]),
+        "activation": "SELU", 
+        # tune.grid_search(["ReLU", "SELU"]),
+        "bottleneck_activation": None, 
+        # tune.grid_search(["ReLU", "SELU", None]),
         "max_epochs": 4000,
         "T_max_ratio":0.6,
         "batch_size": 256,
-        "seed": tune.grid_search([0, 1, 2]),
+        "seed": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         "warmup": 0, 
     },
     "diabetes": { 
+
         "teacher": "umap",
         "t_n_neighbors": 15,
         "n_components": 3,
@@ -190,34 +163,258 @@ INIT_CONFIG = {
         "warmup": 0, 
     },
     "single_cell": {
-        "teacher": "isomap",
+        "data_name": "single_cell",
+        "teacher": "umap",
+        "t_n_neighbors": 5,
+        "min_dist": 0.05,
+        "perplexity": 1,
+        "learning_rate": 'auto',
+        "lr": tune.uniform(1e-4, 5e-3),
+        "lambda_d": 30000,
+        "eta_min1": tune.uniform(1e-6, 1e-4),
+        "eta_min2": tune.uniform(1e-10, 1e-6),
+        "hidden_dims": 
+        [294, 294, 294, 294, 294, 294, 294, 294, 294],
+        # tune.choice([
+            # [250, 250, 250, 2917, 250, 250, 250],
+            # [2917, 250, 250, 250, 250, 250, 250],
+            # [250, 250, 250, 250, 250, 250, 2917],
+            # [250, 250, 2917, 250, 250, 250, 250],
+            # [250, 250, 250, 250, 2917, 250, 250],
+            # [300,300,300,300,300,300,300],
+            # [307,307,307,307,307],
+            # [315, 315, 315],
+            # [294, 294, 294, 294, 294, 294, 294, 294, 294],
+            # [400, 400, 400, 400, 400, 400, 400, 400, 400],
+            # size
+            # [200, 200, 200],
+            # [500, 500, 500],
+            # [1000, 1000, 1000],
+            # [5000, 5000, 5000],
+        # ]),
+        "activation": "SELU", 
+        # tune.grid_search(["ReLU", "SELU"]),
+        "bottleneck_activation": None,
+        # tune.grid_search(["ReLU", "SELU", None]),
+        'max_epochs': 30000,
+        'T_max_ratio': tune.choice([0.6, 0.7, 0.8, 0.9]),
+        "warmup": tune.choice([0, 100, 500, 1000, 2000, 3000]), 
+        "seed": 0,
+        "batch_size": 10000,
+        "use_lbfgs": False
+    },
+    "hydra":{
+        "data_name": "hydra",
+        "teacher": "umap",
+        "t_n_neighbors": 10,
+        "min_dist": 0.1,
+        "perplexity": 2,
+        "learning_rate": 'auto',
+        "lr": tune.uniform(1e-4, 1e-2),
+        "lambda_d": tune.choice([500, 3000, 10000, 30000]),
+        "eta_min1": tune.uniform(1e-6, 1e-4),
+        "eta_min2": tune.uniform(1e-10, 1e-6),
+        "hidden_dims": 
+        tune.choice([
+            # [5120, 2560, 1280, 640, 320]
+            [309, 1792, 1792, 1792],
+            # [588,2751,2751,2751],
+            # [300, 300, 300, 300, 300, 300, 300, 300, 300],
+            # [2000, 2000, 2000, 2000, 2000],
+            # [2000, 2000, 2000, 2000, 2000, 2000],
+        ]),
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': tune.choice([7000, 10000]),
+        'T_max_ratio': 0.7,
+        "warmup": tune.choice([0, 100, 500, 1000, 2000, 3000]), 
+        "seed": 0,
+        "batch_size": 50000,
+        "test_size": 0.2
+    },
+    "pbmc":{
+        "data_name": "pbmc",
+        "teacher": "tsne",
+        # "t_n_neighbors": tune.choice([5, 6, 7, 8, 9, 10, 20, 30, 40, 50, 80, 160]),
+        # "min_dist": tune.choice([0.0125, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9]),
+        "perplexity": 5, # tune.grid_search([5, 10, 15, 20, 45, 55, 75, 140]),
+        "learning_rate": 'auto',
+        "lr": tune.uniform(1e-4, 5e-3),
+        "lambda_d": tune.choice([500, 3000, 10000, 30000, 50000]),
+        "eta_min1": tune.uniform(1e-6, 1e-4),
+        "eta_min2": tune.uniform(1e-10, 1e-6),
+        "hidden_dims": 
+        # [500, 500, 500, 500, 500, 500, 500],
+        tune.choice([
+            # [1024, 2048, 1024]
+        #     [500, 500, 500, 500],
+        #     [1000, 1000, 1000, 1000],
+            [500, 500, 500, 500, 500],
+        #     [500, 500, 500, 500, 500, 500],
+        ]),
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': 20000,
+        'T_max_ratio': tune.choice([0.5, 0.6, 0.7, 0.8, 0.9]),
+        "warmup": tune.choice([0, 100, 500, 1000, 2000, 3000]), 
+        "seed": 0,
+        "batch_size": 10000,
+        "use_lbfgs": False
+    },
+    "astro":{
+        "data_name": "astro",
+        "teacher": "tsne",
         "t_n_neighbors": 10,
         "perplexity": 30,
-        "learning_rate": 200,
-        "lr": 0.00020521674907073966,
-        "lambda_d": 5000,
-        "eta_min1": 3.0205023628787573e-06,
-        "eta_min2": 1.4506322965991254e-09,
-        "hidden_dims": tune.grid_search([
-            # [35890, 3589, 1794, 897, 448],
-            # [3589, 35890, 1794, 897, 448],
-            # [3589, 1794, 35890, 897, 448],
-            # [3589, 1794, 897, 35890, 448],
-            # [3589, 1794, 897, 448, 17945],
-            # [3589, 3589, 3589, 3589],
-            [289,289,289,289,289,289,289],
-            # [354,354,354,354,354],
-            # [500, 500, 500]
+        "learning_rate": 'auto',
+        "lr": tune.loguniform(1e-4, 5e-3),
+        "lambda_d": 50000,
+        "eta_min1": tune.loguniform(5e-5, 9e-4),
+        "eta_min2": tune.loguniform(5e-8, 5e-5),
+        "hidden_dims": 
+        tune.choice([
+            [700] * 15
+            # [256, 256,256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256],
         ]),
-        "activation": tune.grid_search(["ReLU", "SELU"]),
-        "bottleneck_activation": tune.grid_search(["ReLU", "SELU", None]),
-        'max_epochs': 30000,
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': 10000,
+        'T_max_ratio': tune.choice([0.7,0.4]),
+        "warmup": 0,
+        "test_size": 0.2, 
+        "seed": 0,
+        "batch_size": 128,
+        "use_lbfgs": False
+    },
+    "cortical":{
+        "data_name": "cortical",
+        "teacher": "tsne",
+        "t_n_neighbors": 10,
+        "perplexity": 30,
+        "learning_rate": 'auto',
+        "lr": tune.uniform(1e-4, 5e-3),
+        "lambda_d": tune.choice([500, 3000, 10000, 30000, 50000]),
+        "eta_min1": tune.uniform(1e-6, 1e-4),
+        "eta_min2": tune.uniform(1e-10, 1e-6),
+        "hidden_dims": 
+        tune.choice([
+            [309, 1792, 1792, 1792],
+        ]),
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': 10000,
         'T_max_ratio': 0.7,
+        "warmup": tune.choice([0, 100, 500, 1000, 2000]), 
+        "seed": 0,
+        "batch_size": tune.choice([512, 50000]),
+        "use_lbfgs": False
+    },
+    "macaque":{
+        "data_name": "macaque",
+        "teacher": "tsne",
+        "perplexity": 200,
+        "t_n_neighbors": 10,
+        "min_dist": 0.1,
+        "learning_rate": 'auto',
+        "lr": tune.loguniform(1e-4, 5e-2),
+        "lambda_d": 100000,
+        "eta_min1": tune.loguniform(5e-6, 1e-4), # 6.24882e-06, #tsne
+        "eta_min2": tune.loguniform(5e-8, 5e-6),# 5e-7, # tsne
+        # "lr": 0.000359075,
+        # "lambda_d": 50000,
+        # "eta_min1": 2.83639e-06,
+        # "eta_min2": 1.97165e-08,
+        "hidden_dims": 
+        tune.grid_search([
+            [700] * 8,
+            [700] * 35,
+            [700] * 15,
+        ]),
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': tune.grid_search([10000, 15000]),
+        'T_max_ratio': 0.7, # 0.7,
         "warmup": 0, 
-        "seed": tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-        "batch_size": 10000
-    }
+        "seed": 0,
+        "batch_size": 1024,
+        "test_size":0.2,
+        "clip_grad_norm":1.0,
+    },
 }
+#Best config: {'data_name': 'astro', 'teacher': 'pca', 't_n_neighbors': 10, 'perplexity': 2, 'learning_rate': 'auto', 'lr': 0.026868058530635203, 'lambda_d': 50000, 'eta_min1': 1.5330695447172012e-05, 'eta_min2': 3.3311357648749553e-06, 'hidden_dims': [500, 500, 500, 500, 500, 500, 500, 500], 'activation': 'SELU', 'bottleneck_activation': None, 'max_epochs': 20000, 'T_max_ratio': 0.8, 'warmup': 0, 'seed': 0, 'batch_size': 5000, 'use_lbfgs': False}
+# Best distill_loss achieved: 9.122963433583209e-07
+
+# Best config: {'data_name': 'astro', 'teacher': 'pca', 't_n_neighbors': 10, 'perplexity': 2, 'learning_rate': 'auto', 'lr': 0.026063168211691228, 'lambda_d': 30000, 'eta_min1': 7.634351255256293e-05, 'eta_min2': 1.3331622499633123e-06, 'hidden_dims': [1000, 1000, 1000, 1000, 500, 500, 500, 500, 500], 'activation': 'SELU', 'bottleneck_activation': None, 'max_epochs': 20000, 'T_max_ratio': 0.8, 'warmup': 500, 'seed': 0, 'batch_size': 5000, 'use_lbfgs': False}
+# Best distill_loss achieved: 7.509447641496081e-07
+
+def precompute_teacher_embeddings(config):
+    X_tr, X_te = load_and_split(config['data_name'], seed=config['seed'], test_size=config["test_size"] if "test_size" in config else 1)
+    try:
+        # 'xb' = create file, fail if it already exists
+        if config['teacher'] == "umap":
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['min_dist']}_{config['seed']}_train.npy"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_path, "xb") as f:
+                Z_tr = get_teacher_embeddings(
+                    config["teacher"], X_tr,
+                    n_components= config["n_components"] if "n_components" in config else 2,
+                    n_neighbors=config["t_n_neighbors"], 
+                    min_dist=config["min_dist"],
+                    random_state=config['seed'],
+                )
+                np.save(f, Z_tr) 
+            
+        elif config['teacher'] == "pca":
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}{config['n_components']}_{config['seed']}_train.npy"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_path, "xb") as f:
+                Z_tr = get_teacher_embeddings(
+                    config["teacher"], X_tr, 
+                    n_components= config["n_components"] if "n_components" in config else 2,
+                    random_state=config['seed'],
+                )
+                np.save(f, Z_tr) 
+
+        elif config['teacher'] == "isomap":
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['seed']}_train.npy"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_path, "xb") as f:
+                Z_tr = get_teacher_embeddings(
+                    config["teacher"], X_tr, 
+                    n_components= config["n_components"] if "n_components" in config else 2,
+                    n_neighbors=config["t_n_neighbors"],
+                )
+                np.save(f, Z_tr) 
+
+        elif config['teacher'] == "tsne":
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['perplexity']}_{config['seed']}_train.npy"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_path, "xb") as f:
+                Z_tr = get_teacher_embeddings(
+                    config["teacher"], X_tr, 
+                    n_components= config["n_components"] if "n_components" in config else 2,
+                    perplexity=config["perplexity"],
+                    learning_rate=config["learning_rate"],
+                    random_state=config['seed'],
+                )
+                np.save(f, Z_tr) 
+
+        elif config['teacher'] == "spectral":
+            model_path = Path(PATH_PREFIX / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['seed']}_train.npy")
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_path, "xb") as f:
+                Z_tr = get_teacher_embeddings(
+                    config["teacher"], X_tr,
+                    n_components = config["n_components"] if "n_components" in config else 2,
+                    n_neighbors = config["t_n_neighbors"],
+                    random_state = config['seed'],
+                )
+                np.save(f, Z_tr) 
+
+        print(f"Saved: {model_path}")
+    except FileExistsError:
+        print(f"Skipped (already exists): {model_path}")
+
 
 def drd_trainable(config):
     """
@@ -225,34 +422,24 @@ def drd_trainable(config):
     Reports distill_loss at regular intervals for PBT to use.
     """
     # Load and prepare data
-    X_tr, X_te = load_and_split(dataset_name, seed=config['seed'], test_size=1)
+    X_tr, X_te = load_and_split(config['data_name'], seed=config['seed'], test_size=config["test_size"] if "test_size" in config else 1)
+    if config['data_name'] == "astro":
+        # extra processing needed for the astro dataset
+        result = clean_astro_data(X_tr, X_te)
+        X_tr, X_te = result["train"].to_numpy(), result["test"].to_numpy()
+
     if config['teacher'] == "umap":
-        Z_tr, _ = get_teacher_embeddings(
-            config["teacher"], X_tr, 
-            n_components=config["n_components"] if "n_components" in config else 2,
-            n_neighbors=config["t_n_neighbors"], 
-            # min_dist=config["min_dist"],
-            random_state=config['seed'],
-        )
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['min_dist']}_{config['seed']}_train.npy"
     elif config['teacher'] == "pca":
-        Z_tr, _ = get_teacher_embeddings(
-            config["teacher"], X_tr, 
-            n_components= config["n_components"] if "n_components" in config else 2,
-            random_state=config['seed'],
-        )
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}{config['n_components']}_{config['seed']}_train.npy"
     elif config['teacher'] == "isomap":
-        Z_tr, _ = get_teacher_embeddings(
-            config["teacher"], X_tr, 
-            n_components= config["n_components"] if "n_components" in config else 2,
-            n_neighbors=config["t_n_neighbors"],
-        )
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['seed']}_train.npy"
     elif config['teacher'] == "tsne":
-        Z_tr, _ = get_teacher_embeddings(
-            config["teacher"], X_tr, 
-            n_components=config["n_components"] if "n_components" in config else 2,
-            perplexity=config["perplexity"],
-            learning_rate=config["learning_rate"],
-        )
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['perplexity']}_{config['seed']}_train.npy"
+    elif config['teacher'] == "phate":
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['seed']}_train.npy"
+    
+    Z_tr = np.load(model_path)
     
     # Prepare student configuration
     student_kwargs = {
@@ -267,9 +454,11 @@ def drd_trainable(config):
         "lambda_d": config['lambda_d'],
         "activation": config['activation'],
         "bottleneck_activation": config["bottleneck_activation"],
-        "latent_dim": config["student_latent_dim"] if "student_latent_dim" in config else 2
+        "latent_dim": config["student_latent_dim"] if "student_latent_dim" in config else 2,
+        "clip_grad_norm": config["clip_grad_norm"] if "clip_grad_norm" in config else 1.0,
     }
     
+
     # Create student model
     student = make_student(
         method="drd",
@@ -278,100 +467,14 @@ def drd_trainable(config):
         device=DEVICE,
         **student_kwargs,
     )
-    
-    # Handle checkpointing (if resuming from checkpoint)
-    # checkpoint = train.get_checkpoint()
-    # print(f"checkpoint {checkpoint}")
-    # start_epoch = 0
-    # if checkpoint:
-    #     with checkpoint.as_directory() as checkpoint_dir:
-    #         checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pkl")
-    #         with open(checkpoint_path, 'rb') as fp:
-    #             checkpoint_dict = pickle.load(fp)
-    #             student.model.load_state_dict(checkpoint_dict['model_state_dict'])
-    #             student.opt_joint.load_state_dict(checkpoint_dict['optimizer_state_dict'])
-    #             start_epoch = checkpoint_dict.get('epoch', 0)
-    
-    # Custom training loop with periodic reporting
-    X_tensor = torch.tensor(X_tr, dtype=torch.float32).to(DEVICE)
-    Z_tensor = torch.tensor(Z_tr, dtype=torch.float32).to(DEVICE)
-    dataset = TensorDataset(X_tensor, Z_tensor)
-    loader = DataLoader(dataset, batch_size=student.batch_size, shuffle=True)
-    
-    student.model.train()
-    report_interval = max(1, config['max_epochs'] // 100)  # Report 100 times during training
-    
-    for epoch in range(start_epoch, config['max_epochs']):
-        epoch_distill_loss = 0.0
-        epoch_recon_loss = 0.0
-        num_batches = 0
-        
-        for batch in loader:
-            x = batch[0].to(DEVICE, non_blocking=True)
-            teacher_z = batch[1].to(DEVICE, non_blocking=True)
-            
-            student.opt_joint.zero_grad()
-            x_rec, z = student.model(x)
-            
-            # Calculate losses
-            recon_loss = student.criterion(x_rec, x)
-            distill_loss = student.criterion(z, teacher_z)
-            
-            # Apply warmup to lambda_d
-            if epoch < student.warmup_epochs:
-                lambda_d = student.lambda_d * (epoch / student.warmup_epochs)
-            else:
-                lambda_d = student.lambda_d
-            
-            total_loss = recon_loss + lambda_d * distill_loss
-            
-            total_loss.backward()
-            nn.utils.clip_grad_norm_(student.model.parameters(), max_norm=student.clip_grad_norm)
-            student.opt_joint.step()
-            
-            epoch_distill_loss += distill_loss.item()
-            epoch_recon_loss += recon_loss.item()
-            num_batches += 1
-        
-        # Update learning rate schedulers
-        if epoch < student.T_max:
-            student.scheduler1.step()
-        else:
-            if student.scheduler2 is None:
-                student.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    student.opt_joint, 
-                    T_max=config['max_epochs'] - epoch, 
-                    eta_min=student.eta_min2
+
+    student.fit(X_tr, Z_tr, verbose=False,
+                target_bands=[(1e-12, 5e-7)], 
+                stability_window=10, 
+                epsilon_distill=1e-7, epsilon_recon=1e-3, 
+                patience=20, # unit = epoch
+                return_on_stable=True,
                 )
-            student.scheduler2.step()
-        
-        # Report metrics at regular intervals and handle checkpointing
-        checkpoint_freq = config.get('checkpoint_freq', 1e10)
-        if (epoch + 1) % report_interval == 0 or epoch == config['max_epochs'] - 1:
-            avg_distill_loss = epoch_distill_loss / num_batches
-            avg_recon_loss = epoch_recon_loss / num_batches
-            current_lr = student.opt_joint.param_groups[0]['lr']
-            
-            # Create checkpoint data
-            checkpoint_data = {
-                'epoch': epoch + 1,
-                'model_state_dict': student.model.state_dict(),
-                'optimizer_state_dict': student.opt_joint.state_dict(),
-                'distill_loss': avg_distill_loss,
-                'recon_loss': avg_recon_loss,
-            }
-            
-            # Report with or without checkpoint based on frequency
-            if (epoch + 1) % checkpoint_freq == 0 or epoch == config['max_epochs'] - 1:
-                with tempfile.TemporaryDirectory() as checkpoint_dir:
-                    checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pkl")
-                    with open(checkpoint_path, 'wb') as fp:
-                        pickle.dump(checkpoint_data, fp)
-                    checkpoint = Checkpoint.from_directory(checkpoint_dir)
-                    tune.report({'distill_loss': avg_distill_loss, 'recon_loss': avg_recon_loss}, checkpoint=checkpoint)
-            else:
-                # Report without checkpoint (for more frequent metric updates)
-                tune.report({'distill_loss': avg_distill_loss, 'recon_loss': avg_recon_loss})
 
 ahbs = AsyncHyperBandScheduler(
     time_attr="training_iteration",
@@ -382,37 +485,40 @@ ahbs = AsyncHyperBandScheduler(
 )
 
 # Run the experiment (simplified approach without RunConfig for compatibility)
-analysis = tune.run(
-    drd_trainable,
-    name="drd_asynchyperband_distill_optimization",
-    # scheduler=ahbs,
-    num_samples=8, 
-    resources_per_trial={"cpu": 6, "gpu": 0.5},  # Adjusted GPU allocation
-    config= INIT_CONFIG[dataset_name],
-    verbose=1,
-    max_failures=3,
-    storage_path="/shared/share_mala/irchang/drd/ray_results"
-)
+for data_name in dataset_name:
+    path = f"{PATH_PREFIX}/tune_results/{data_name}_{teacher_name}.csv"
+    precompute_teacher_embeddings(INIT_CONFIG[data_name].copy())
+    analysis = tune.run(
+        drd_trainable,
+        name="drd_asynchyperband_distill_optimization",
+        num_samples=8, 
+        resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
+        config= INIT_CONFIG[data_name],
+        verbose=1,
+        max_failures=3,
+        scheduler=ahbs,
+        storage_path="/tmp/ray_results"
+    )
 
-analysis.results_df.to_csv(path)
-print(f"Save results to {path}")
-print("="*50)
-print("OPTIMIZATION COMPLETE")
-print("="*50)
-best_config = analysis.get_best_config("distill_loss", "min")
-print(f"Best config: {best_config}")
+    analysis.results_df.to_csv(path)
+    print(f"Save results to {path}")
+    print("="*50)
+    print("OPTIMIZATION COMPLETE")
+    print("="*50)
+    best_config = analysis.get_best_config("distill_loss", "min")
+    print(f"Best config: {best_config}")
 
-best_trial = analysis.get_best_trial("distill_loss", "min")
-print(f"Best distill_loss achieved: {best_trial.last_result['distill_loss']}")
+    best_trial = analysis.get_best_trial("distill_loss", "min")
+    print(f"Best distill_loss achieved: {best_trial.last_result['distill_loss']}")
 
-# Print top 5 configurations
-print("\nTop 5 configurations:")
-df = analysis.results_df.nsmallest(5, 'distill_loss')
-for i, (idx, row) in enumerate(df.iterrows()):
-    print(f"{i+1}. Distill Loss: {row['distill_loss']}")
-    print(f"   Config: lr={row['config/lr']:.2e}, lambda_d={row['config/lambda_d']}, "
-          f"hidden_dims={row['config/hidden_dims']}")
-    print(f"   Architecture depth: {len(row['config/hidden_dims'])}")
-    print()
+    # Print top 5 configurations
+    print("\nTop 5 configurations:")
+    df = analysis.results_df.nsmallest(5, 'distill_loss')
+    for i, (idx, row) in enumerate(df.iterrows()):
+        print(f"{i+1}. Distill Loss: {row['distill_loss']}")
+        print(f"   Config: lr={row['config/lr']:.2e}, lambda_d={row['config/lambda_d']}, "
+            f"hidden_dims={row['config/hidden_dims']}")
+        print(f"   Architecture depth: {len(row['config/hidden_dims'])}")
+        print()
 
 
