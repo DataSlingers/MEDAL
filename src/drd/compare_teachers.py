@@ -1,12 +1,10 @@
 # run teacher evaluation as a grid search on ray
 from ray import tune
 from utils.eval_utils import make_student, load_and_split, eval_student, get_teacher_embeddings
-from utils.process_astro import clean_astro_data
 import os
 import numpy as np
 from pathlib import Path
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7" 
 
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
 DISTILL_BANDS_DICT = {
@@ -135,35 +133,18 @@ INIT_CONFIG = {
         "seed": tune.grid_search([0, 1, 2, 3, 4]),
         "batch_size": 10000,
     },
-    # "astro":{
-    #     "lr": 0.026063168211691228,
-    #     "lambda_d": 50000,
-    #     "eta_min1": 7.634351255256293e-05,
-    #     "eta_min2": 1.3331622499633123e-06,
-    #     "hidden_dims": [1000, 1000, 1000, 1000, 500, 500, 500, 500, 500],
-    #     "activation": "SELU", 
-    #     "bottleneck_activation": None,
-    #     'max_epochs': 20000,
-    #     'T_max_ratio': 0.75,
-    #     "warmup": 500, 
-    #     "seed": tune.grid_search([0, 1, 2, 3, 4]),
-    #     "batch_size": 5000,
-    #     "use_lbfgs": False
-    # },
     "astro":{
-        "lr": 0.021855091469559523,
-        "lambda_d": 10000,
-        "eta_min1": 7.634351255256293e-05, #9.286424485512266e-06,
-        "eta_min2": 9.286424485512266e-06, # 3.365940709851557e-06,
-        "hidden_dims": [512, 256, 128, 64, 32, 32],
+        "lr": 0.00139911,
+        "lambda_d": 100000,
+        "eta_min1": 3.55767e-07,
+        "eta_min2": 5.12773e-11,
+        "hidden_dims": [256, 256,256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256],
         "activation": "SELU", 
         "bottleneck_activation": None,
-        'max_epochs': 20000,
-        'T_max_ratio': 0.6,
+        'max_epochs': 60000,
+        'T_max_ratio': 0.75,
         "warmup": 0, 
-        "seed": tune.grid_search([0, 1, 2, 3, 4]),
-        "batch_size": 512,
-        "use_lbfgs": False,
+        "batch_size": 256,
         "test_size": 0.2
     },
     "cortical":{
@@ -188,8 +169,8 @@ INIT_CONFIG = {
         "hidden_dims": [700] * 15,
         "activation": "SELU", 
         "bottleneck_activation": None,
-        'max_epochs': 12000,
-        'T_max_ratio': 0.7,
+        'max_epochs': 15000,
+        'T_max_ratio': 0.56,#0.7,
         "warmup": 0, 
         "batch_size": 1024,
         "test_size":0.2
@@ -249,7 +230,7 @@ def precompute_teacher_embeddings(tc, config):
                 np.save(f, Z_tr) 
 
         elif tc['teacher'] == "spectral":
-            model_path = Path(PATH_PREFIX / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy")
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
@@ -273,10 +254,6 @@ def compare_teacher(config):
     # Load and prepare data, same train-test split
     tc = config["teacher_config"]
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
-    if config['dataset_name'] == "astro":
-        # extra processing needed for the astro dataset
-        result = clean_astro_data(X_tr, X_te)
-        X_tr, X_te = result["train"].to_numpy(), result["test"].to_numpy()
     
     if tc['teacher'] == "umap":
         model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{tc['seed']}_train.npy"
@@ -327,9 +304,9 @@ def compare_teacher(config):
                 # checkpointing
                 save_dir = PATH_PREFIX + f'/results/chkpt/{config["dataset_name"]}', 
                 # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}_{tc["min_dist"]}_{tc["seed"]}',
-                # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}',
-                # prefix=f'{tc["teacher"]}_{tc["perplexity"]}_{tc["seed"]}',
-                prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["seed"]}',
+                # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}_{tc["seed"]}',
+                prefix=f'{tc["teacher"]}_{tc["perplexity"]}_{tc["seed"]}',
+                # prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["seed"]}',
                 )
 
 # def pretrain_task(config, num_pretrain_epochs=10):
@@ -369,9 +346,9 @@ def compare_teacher(config):
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "cortical"
+    dataset_name = "hydra"
     path = f"{PATH_PREFIX}/compare_teachers"
-    filename=f"{dataset_name}_pca.csv" 
+    filename=f"{dataset_name}_tsne.csv" 
 
     config = INIT_CONFIG[dataset_name].copy()
     config.update({
@@ -406,17 +383,18 @@ if __name__ == "__main__":
 
     # t-SNE combos
     # for perp in np.unique(np.logspace(np.log10(5), np.log10(200), 10).astype(int))[::-1]:
-    # for perp in np.unique(np.arange(10, 420, 20).astype(int)):
+    for perp in np.unique(np.arange(10, 420, 20).astype(int)):
     # for perp in np.unique(np.arange(5, 141, 5).astype(int)):
-        # for seed in [1]: # [0, 1, 2, 3, 4]:
-            # teacher_grid.append({
-            #     "teacher": "tsne",
-            #     "n_components": 2,
-            #     "perplexity": perp,
-            #     "learning_rate": 'auto',
-            #     "seed": seed
-            # })
-            # precompute_teacher_embeddings(teacher_grid[-1], config)
+    # for perp in [30]:
+        for seed in range(5):
+            teacher_grid.append({
+                "teacher": "tsne",
+                "n_components": 2,
+                "perplexity": perp,
+                "learning_rate": 'auto',
+                "seed": seed
+            })
+            precompute_teacher_embeddings(teacher_grid[-1], config)
 
     # Isomap combos
     # for n in np.unique(np.logspace(0, 2.9, 6).astype(int))[1:]:
@@ -427,25 +405,25 @@ if __name__ == "__main__":
     #     })
 
     # Spectral combos
-    # for n in np.unique(np.logspace(np.log10(5), np.log10(1000), 10).astype(int)):
+    # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 10).astype(int)):
     #     for seed in [0, 1, 2, 3, 4]:
     #         teacher_grid.append({
     #             "teacher": "spectral",
     #             "n_components": 2,
     #             "t_n_neighbors": n,
-    #             "random_state": seed
+    #             "seed": seed
     #         })
-    #         precompute_teacher_embeddings(teacher_grid[-1])
+    #         precompute_teacher_embeddings(teacher_grid[-1], config)
 
     # PCA
     # for c in range(2, 21):
-    for seed in [0, 1, 2, 3, 4]:
-        teacher_grid.append({
-            "teacher": "pca",
-            "n_components": 2,
-            "seed": seed
-        })
-        precompute_teacher_embeddings(teacher_grid[-1], config)
+    # for seed in [0, 1, 2, 3, 4]:
+    #     teacher_grid.append({
+    #         "teacher": "pca",
+    #         "n_components": 2,
+    #         "seed": seed
+    #     })
+    #     precompute_teacher_embeddings(teacher_grid[-1], config)
 
 
     config.update({
@@ -458,7 +436,7 @@ if __name__ == "__main__":
         compare_teacher,
         name="drd_teacher_sweep",
         num_samples=1, 
-        resources_per_trial={"cpu": 5, "gpu": 0.25},  # Adjusted GPU allocation
+        resources_per_trial={"cpu": 4, "gpu": 0.5},  # Adjusted GPU allocation
         config= config,
         verbose=1,
         max_failures=3,
