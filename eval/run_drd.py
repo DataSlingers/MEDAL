@@ -7,6 +7,7 @@ import os
 import argparse, json
 import pprint
 import torch
+import scanpy as sc
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
@@ -16,10 +17,16 @@ from utils.eval_utils import load_and_split, get_teacher_embeddings, make_studen
 
 DISTILL_BANDS_DICT = {
     "gene_cancer": [(1e-12, 9e-9)],
-    "mnist": [(1e-12, 9e-7)],
+    "mnist": [(1e-12, 9e-8)],
     "single_cell": [(1e-12, 9e-7)],
     "wine": [(1e-12, 9e-8)],
+    "hydra": [(1e-12, 9e-8)],
+    "pbmc": [(1e-12, 9e-7)],
+    "cortical": [(1e-12, 9e-8)],
+    "macaque": [(1e-12, 5e-7)],
+    "synthetic": [(1e-12, 9e-8)],
 }
+PATH_PREFIX = "/shared/share_mala/irchang/drd"
 
 @dataclass
 class ExperimentConfig:
@@ -32,6 +39,7 @@ class ExperimentConfig:
     seeds: List[int] = field(default_factory=lambda: list(range(10)))
     device: str = "cpu"
     verbose: bool = False
+    test_size: float = 1.0
 
 def run_single_config(cfg: ExperimentConfig):
     if cfg.student_method == "drd":
@@ -44,12 +52,12 @@ def run_drd_config(cfg: ExperimentConfig):
     device = torch.device(cfg.student_kwargs.get("device", cfg.device) or("cuda" if torch.cuda.is_available() else "cpu"))
     for seed in cfg.seeds:
         # 1) load data
-        X_tr, X_te = load_and_split(cfg.dataset, seed=seed)
+        X_tr, X_te = load_and_split(cfg.dataset, test_size=cfg.test_size, seed=0)
         tc = cfg.teacher_kwargs
 
         # 2) teacher embeddings
         if cfg.teacher_method == "umap":
-            Z_tr, _ = get_teacher_embeddings(
+            Z_tr = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
                 n_neighbors=tc["n_neighbors"] if "n_neighbors" in tc else 15, 
@@ -57,25 +65,26 @@ def run_drd_config(cfg: ExperimentConfig):
                 random_state=seed,
             )
         elif cfg.teacher_method == "pca":
-            Z_tr, _ = get_teacher_embeddings(
+            Z_tr = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
                 random_state=seed,
             )
         elif cfg.teacher_method == "isomap":
-            Z_tr, _ = get_teacher_embeddings(
+            Z_tr = get_teacher_embeddings(
                 cfg.teacher_method, X_tr, 
                 n_components= tc["n_components"] if "n_components" in tc else 2,
                 n_neighbors=tc["n_neighbors"] if "n_neighbors" in tc else 15,
             )
         elif cfg.teacher_method == "tsne":
-            Z_tr, _ = get_teacher_embeddings(
-                cfg.teacher_method, X_tr, 
+            Z_tr = get_teacher_embeddings(
+                cfg.teacher_method, X_tr.toarray() if hasattr(X_tr, "toarray") else X_tr,
                 n_components= tc["n_components"] if "n_components" in tc else 2,
                 perplexity=tc["perplexity"] if "perplexity" in tc else 30,
                 learning_rate=tc["learning_rate"]   if "learning_rate" in tc else 200,
+                random_state=seed,
             )
-           
+        
         student = make_student(
             method="drd",
             input_dim=X_tr.shape[1],
@@ -95,6 +104,7 @@ def run_drd_config(cfg: ExperimentConfig):
                 return_on_stable=True,
                 # checkpointing
                 save_dir = cfg.student_kwargs.get("save_model_path") if cfg.student_kwargs.get("save_model", False) else None, 
+                prefix=f'{cfg.teacher_method}_{tc["n_neighbors"]}_{seed}',
                 print_tag=True,
                 )
         train_metrics = eval_student(student, X_tr, Z_tr)
@@ -147,6 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default='wine', help="Dataset to run the simulation on")
     parser.add_argument("--teacher_method", type=str, default='umap', help="Method to use for teacher embeddings (e.g., 'umap', 'pca')")
     parser.add_argument("--seeds", type=json.loads, default="[0,1,2,3,4,5,6,7,8,9]", help="List of random seeds for reproducibility")
+    parser.add_argument("--test_size", type=float, default=1.0, help="Test size")
 
     # teacher model config
     parser.add_argument("--teacher_kwargs", type=json.loads, default='{"random_state": 0}', help="Hyperparameters for the teacher method")
@@ -175,6 +186,7 @@ if __name__ == "__main__":
         hidden_layers=args.hidden_layers,  
         device=args.device,
         verbose=args.verbose,
+        test_size=args.test_size,
     )
     config_list.append(config)
     # Add PCA baseline config

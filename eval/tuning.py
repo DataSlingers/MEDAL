@@ -2,7 +2,6 @@ from ray import tune
 from ray.tune.schedulers import PopulationBasedTraining, AsyncHyperBandScheduler
 from ray.tune import CLIReporter
 from utils.eval_utils import make_student, load_and_split, get_teacher_embeddings, eval_student
-from utils.process_astro import clean_astro_data # FIX THIS
 from torch.utils.data import DataLoader, TensorDataset
 import torch, torch.nn as nn
 import tqdm, os
@@ -14,11 +13,11 @@ import scanpy as sc
 from pathlib import Path
 
 DEVICE = "cuda"
-dataset_name = ["macaque"]
+dataset_name = ["synthetic"]
 teacher_name = "tsne"
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
 # path = f"{PATH_PREFIX}/tune_results/activation_{dataset_name}_{teacher_name}.csv"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0,3,5,6,7" 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2,4,5,6,7" 
 
 INIT_CONFIG = {
     "gene_cancer": {
@@ -269,22 +268,21 @@ INIT_CONFIG = {
         "learning_rate": 'auto',
         "lr": tune.loguniform(1e-4, 5e-3),
         "lambda_d": 50000,
-        "eta_min1": tune.loguniform(5e-5, 9e-4),
-        "eta_min2": tune.loguniform(5e-8, 5e-5),
+        "eta_min1": tune.loguniform(1e-8, 1e-5),
+        "eta_min2": tune.loguniform(5e-9, 1e-8),
         "hidden_dims": 
         tune.choice([
-            [700] * 15
-            # [256, 256,256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256],
+            # [700] * 15
+            [256, 256,256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256],
         ]),
         "activation": "SELU", 
         "bottleneck_activation": None,
-        'max_epochs': 10000,
-        'T_max_ratio': tune.choice([0.7,0.4]),
+        'max_epochs': 50000,
+        'T_max_ratio': 0.9,
         "warmup": 0,
         "test_size": 0.2, 
         "seed": 0,
-        "batch_size": 128,
-        "use_lbfgs": False
+        "batch_size": tune.choice([256, 32]),
     },
     "cortical":{
         "data_name": "cortical",
@@ -340,15 +338,41 @@ INIT_CONFIG = {
         "test_size":0.2,
         "clip_grad_norm":1.0,
     },
+    "synthetic":{
+        "data_name": "synthetic",
+        "teacher": "tsne",
+        "perplexity": 30,
+        "t_n_neighbors": 10,
+        "min_dist": 0.1,
+        "learning_rate": 'auto',
+        "lr": tune.loguniform(1e-4, 5e-2),
+        "lambda_d": 100000,
+        "eta_min1": tune.loguniform(5e-6, 1e-4), # 6.24882e-06, #tsne
+        "eta_min2": tune.loguniform(5e-8, 5e-6),# 5e-7, # tsne
+        # "lr": 0.000359075,
+        # "lambda_d": 50000,
+        # "eta_min1": 2.83639e-06,
+        # "eta_min2": 1.97165e-08,
+        "hidden_dims": 
+        tune.grid_search([
+            [700] * 8,
+            [700] * 35,
+            [700] * 15,
+        ]),
+        "activation": "SELU", 
+        "bottleneck_activation": None,
+        'max_epochs': 10000,
+        'T_max_ratio': 0.7, # 0.7,
+        "warmup": 0, 
+        "seed": 0,
+        "batch_size": 1024,
+        "test_size": 0,
+        "clip_grad_norm":1.0,
+    },
 }
-#Best config: {'data_name': 'astro', 'teacher': 'pca', 't_n_neighbors': 10, 'perplexity': 2, 'learning_rate': 'auto', 'lr': 0.026868058530635203, 'lambda_d': 50000, 'eta_min1': 1.5330695447172012e-05, 'eta_min2': 3.3311357648749553e-06, 'hidden_dims': [500, 500, 500, 500, 500, 500, 500, 500], 'activation': 'SELU', 'bottleneck_activation': None, 'max_epochs': 20000, 'T_max_ratio': 0.8, 'warmup': 0, 'seed': 0, 'batch_size': 5000, 'use_lbfgs': False}
-# Best distill_loss achieved: 9.122963433583209e-07
-
-# Best config: {'data_name': 'astro', 'teacher': 'pca', 't_n_neighbors': 10, 'perplexity': 2, 'learning_rate': 'auto', 'lr': 0.026063168211691228, 'lambda_d': 30000, 'eta_min1': 7.634351255256293e-05, 'eta_min2': 1.3331622499633123e-06, 'hidden_dims': [1000, 1000, 1000, 1000, 500, 500, 500, 500, 500], 'activation': 'SELU', 'bottleneck_activation': None, 'max_epochs': 20000, 'T_max_ratio': 0.8, 'warmup': 500, 'seed': 0, 'batch_size': 5000, 'use_lbfgs': False}
-# Best distill_loss achieved: 7.509447641496081e-07
 
 def precompute_teacher_embeddings(config):
-    X_tr, X_te = load_and_split(config['data_name'], seed=config['seed'], test_size=config["test_size"] if "test_size" in config else 1)
+    X_tr, X_te = load_and_split(config['data_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
     try:
         # 'xb' = create file, fail if it already exists
         if config['teacher'] == "umap":
@@ -422,11 +446,7 @@ def drd_trainable(config):
     Reports distill_loss at regular intervals for PBT to use.
     """
     # Load and prepare data
-    X_tr, X_te = load_and_split(config['data_name'], seed=config['seed'], test_size=config["test_size"] if "test_size" in config else 1)
-    if config['data_name'] == "astro":
-        # extra processing needed for the astro dataset
-        result = clean_astro_data(X_tr, X_te)
-        X_tr, X_te = result["train"].to_numpy(), result["test"].to_numpy()
+    X_tr, X_te = load_and_split(config['data_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1) 
 
     if config['teacher'] == "umap":
         model_path = Path(PATH_PREFIX) / f"embeddings/{config['data_name']}_{config['teacher']}_{config['t_n_neighbors']}_{config['min_dist']}_{config['seed']}_train.npy"
@@ -491,7 +511,7 @@ for data_name in dataset_name:
     analysis = tune.run(
         drd_trainable,
         name="drd_asynchyperband_distill_optimization",
-        num_samples=8, 
+        num_samples=10, 
         resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
         config= INIT_CONFIG[data_name],
         verbose=1,
