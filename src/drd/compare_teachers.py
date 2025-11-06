@@ -5,10 +5,11 @@ import os
 import numpy as np
 from pathlib import Path
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
 DISTILL_BANDS_DICT = {
-    "gene_cancer": [(1e-12, 9e-9)],
+    "gene_cancer": [(1e-12, 5e-7)],
     "mnist": [(1e-12, 9e-8)],
     "single_cell": [(1e-12, 5e-7)],
     "wine": [(1e-12, 9e-8)],
@@ -32,24 +33,26 @@ N_SAMPLES = {
 
 INIT_CONFIG = {
     "gene_cancer": {
-        "lr": 1e-3,  
-        "lambda_d": 15000, # 1500
-        "eta_min1": 1e-5, #1e-9
-        "eta_min2": 0.0, 
+        "lr": 1e-5, #1e-3,  
+        "lambda_d": 10000,#30000, # 1500
+        # "lambda_d": 0,
+        "eta_min1": 1e-11, #1e-9-
+        "eta_min2": 0, 
         "hidden_dims":[1000, 1000, 1000, 1000],
         "activation": "SELU",
+        # "activation": None,
         "bottleneck_activation": None,
-        "max_epochs": 6000,
-        # "T_max_ratio": 0.5,
-        "T_max": 3000,
-        "warmup": 0,  
-        "seed": tune.grid_search([0, 1, 2, 3, 4]),
+        "max_epochs": 7000,
+        "T_max_ratio": 0.5,
+        # "T_max": 7000,
+        "warmup": 0, 
+        "test_size": 0.2,
         "batch_size": 100
     },
     "wine": {
         "lr": 0.02, #0.003233466538536306,
         "lambda_d": 10000,
-        "eta_min1": 1e-6, #6.076040435352558e-08,
+        "eta_min1": 1e-8, #6.076040435352558e-08,
         "eta_min2": 1.2312179372780289e-17,
         "hidden_dims": [258, 258, 258, 258],
         "activation": "SELU",
@@ -61,21 +64,40 @@ INIT_CONFIG = {
         "batch_size": 100
     },
     "mnist": { # 10k or 1k
-        "lr": 0.000269,	
-        "lambda_d": 10000, # 3000
+        "lr": 2e-4, # 2e-5, #0.000269,	
+        "lambda_d": 100000, # 3000
         # "lambda_d": 0, # for vanilla AE
-        "eta_min1": 1e-8, # 7.256237e-10,
+        "eta_min1": 1e-8, #1e-5, # 7.256237e-10, 1e-10(spectral)
         "eta_min2": 1.587436e-16,
         "hidden_dims": [1000, 1000, 1000, 1000, 1000], 
         "activation": "SELU",
+        # "activation": None,
         "bottleneck_activation": None,
-        # "bottleneck_activation": "SELU",
-        "max_epochs": 3500,
-        "T_max_ratio":0.6,
+        "max_epochs":1000, #100000,
+        "T_max_ratio":1,
         "batch_size": 256,
         "warmup": 0, 
+        # "clip_grad_norm": 10,
+        "adamw_weight_decay": 0.01, #0.5,
         "test_size":0.2
     },
+    # "mnist": { # 10k or 1k
+    #     "lr": 5e-5, #0.000269,	
+    #     "lambda_d": 200000, # 3000
+    #     # "lambda_d": 0, # for vanilla AE
+    #     "eta_min1": 1e-8, #1e-5, # 7.256237e-10,
+    #     "eta_min2": 1e-7, #1.587436e-16,
+    #     "hidden_dims": [1000, 1000, 1000, 1000, 1000], 
+    #     "activation": "SELU",
+    #     "bottleneck_activation": None,
+    #     "max_epochs":5000,
+    #     "T_max_ratio":1,
+    #     "batch_size": 256,
+    #     "warmup": 0, 
+    #     # "clip_grad_norm": 10,
+    #     "adamw_weight_decay": 1e-5,
+    #     "test_size":0.2
+    # },
     "diabetes": {  #(442, 10)
         "lr": 0.0253689, 
         "lambda_d": 10000,
@@ -115,7 +137,6 @@ INIT_CONFIG = {
         'max_epochs': 7000,
         'T_max_ratio': 0.7,
         "warmup": 1500, 
-        # "seed": tune.grid_search([0, 1, 2, 3, 4]),
         "batch_size": 51200,
         "test_size": 0.2
     },
@@ -179,11 +200,16 @@ INIT_CONFIG = {
 
 def precompute_teacher_embeddings(tc, config):
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
+    load_this_seed = tc['seed'] if config['retrain_teacher'] else 0
     try:
         # 'xb' = create file, fail if it already exists
         if tc['teacher'] == "umap":
-            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{tc['seed']}_train.npy"
-            model_path.parent.mkdir(parents=True, exist_ok=True)
+            if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
+                model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
                     tc["teacher"], X_tr,
@@ -195,7 +221,7 @@ def precompute_teacher_embeddings(tc, config):
                 np.save(f, Z_tr) 
             
         elif tc['teacher'] == "pca":
-            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['seed']}_train.npy"
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{load_this_seed}_train.npy"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
@@ -206,7 +232,7 @@ def precompute_teacher_embeddings(tc, config):
                 np.save(f, Z_tr) 
 
         elif tc['teacher'] == "isomap":
-            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy"
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
@@ -217,7 +243,10 @@ def precompute_teacher_embeddings(tc, config):
                 np.save(f, Z_tr) 
 
         elif tc['teacher'] == "tsne":
-            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['perplexity']}_{tc['seed']}_train.npy"
+            if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['perplexity']}_{load_this_seed}_train.npy"
+            else:
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['perplexity']}_{load_this_seed}_train.npy"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
@@ -230,7 +259,10 @@ def precompute_teacher_embeddings(tc, config):
                 np.save(f, Z_tr) 
 
         elif tc['teacher'] == "spectral":
-            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy"
+            if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
+            else:
+                model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(model_path, "xb") as f:
                 Z_tr = get_teacher_embeddings(
@@ -254,17 +286,28 @@ def compare_teacher(config):
     # Load and prepare data, same train-test split
     tc = config["teacher_config"]
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
+
+    load_this_seed = tc['seed'] if config['retrain_teacher'] else 0
     
     if tc['teacher'] == "umap":
-        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{tc['seed']}_train.npy"
+        if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
+        else:
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
     elif tc['teacher'] == "pca":
-        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['seed']}_train.npy"
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{load_this_seed}_train.npy"
     elif tc['teacher'] == "isomap":
-        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy"
+        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
     elif tc['teacher'] == "tsne":
-        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['perplexity']}_{tc['seed']}_train.npy"
+        if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['perplexity']}_{load_this_seed}_train.npy"
+        else:
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['perplexity']}_{load_this_seed}_train.npy"
     elif tc['teacher'] == "spectral":
-        model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['seed']}_train.npy"
+        if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
+        else:  
+            model_path = Path(PATH_PREFIX) / f"embeddings/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
 
     Z_tr = np.load(model_path)
     
@@ -282,6 +325,7 @@ def compare_teacher(config):
         "activation": config['activation'],
         "bottleneck_activation": config["bottleneck_activation"],
         "hidden_dims": config["hidden_dims"],
+        "adamw_weight_decay": config['adamw_weight_decay'] if "adamw_weight_decay" in config else 1e-5
     }
     
     # Create student model
@@ -302,11 +346,17 @@ def compare_teacher(config):
                 patience=20, # unit = epoch
                 return_on_stable=True,
                 # checkpointing
-                save_dir = PATH_PREFIX + f'/results/chkpt/{config["dataset_name"]}', 
-                # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}_{tc["min_dist"]}_{tc["seed"]}',
+                save_dir = PATH_PREFIX + f'/tmp_results/chkpt/{config["dataset_name"]}',
+                # save_dir = f'/tmp/results/chkpt/{config["dataset_name"]}', 
+                # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}_{tc["min_dist"]}_{tc["seed"]}_fixed_teacher',
+                # prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["t_n_neighbors"]}_{tc["min_dist"]}_{tc["seed"]}'
                 # prefix=f'{tc["teacher"]}_{tc["t_n_neighbors"]}_{tc["seed"]}',
-                prefix=f'{tc["teacher"]}_{tc["perplexity"]}_{tc["seed"]}',
+                # prefix=f'{tc["teacher"]}_{tc["perplexity"]}_{tc["seed"]}_fixed_teacher',
+                # prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["perplexity"]}_{tc["seed"]}'
+                prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["t_n_neighbors"]}_{tc["seed"]}',
                 # prefix=f'{tc["teacher"]}{tc["n_components"]}_{tc["seed"]}',
+                # prefix=f'vanillaAE_{tc["n_components"]}_{tc["seed"]}',
+                # prefix=f'linearAE_{tc["teacher"]}{tc["n_components"]}_{tc["seed"]}'
                 )
 
 # def pretrain_task(config, num_pretrain_epochs=10):
@@ -342,19 +392,20 @@ def compare_teacher(config):
 #                 pretrained_path='/user/bnc2119/drd/results/pretrain',
 #                 prefix=f"{config['dataset_name']}",
 #                 )
-    
+
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "hydra"
-    path = f"{PATH_PREFIX}/compare_teachers"
-    filename=f"{dataset_name}_tsne.csv" 
+    dataset_name = "gene_cancer"
+    # path = f"{PATH_PREFIX}/compare_teachers"
+    # filename=f"{dataset_name}_umap.csv" 
 
     config = INIT_CONFIG[dataset_name].copy()
     config.update({
         "dataset_name": dataset_name,
         "verbose": False,
-        "pretrained_path": None
+        "pretrained_path": None,
+        "retrain_teacher": False,
         # f'/user/bnc2119/drd/results/pretrain/{dataset_name}_pretrain.pt',
     })
     # pretrain_ckpt_path = pretrain_task(config, num_pretrain_epochs=1000)
@@ -365,13 +416,12 @@ if __name__ == "__main__":
     # sample_lim = int(INIT_CONFIG[dataset_name]["test_size"] * (N_SAMPLES[dataset_name] - 1)) if "test_size" in INIT_CONFIG[dataset_name] else N_SAMPLES[dataset_name] - 1
 
     # UMAP combos
-    # for n in np.unique(np.logspace(np.log(5), np.log10(1000), 15).astype(int))[:-3]:
+    # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)):
     # for n in np.unique(np.logspace(0, np.log10(1000), 20).astype(int))[1:]:
-    # for n in [5, 6, 7, 8, 9, 10, 20, 30, 40, 50, 80, 160]:
-    # for n in [5, 15]:
+    # for n in [2, 4, 6,  8, 12, 18, 26, 37,54, 78, 112, 162, 233, 335, 483,695, 1000]: # MNIST  
     # for n in np.unique(np.arange(5, 200, 25).astype(int)): # Hydra
         # for md in [0.05, 0.1, 0.3, 0.5, 0.7, 0.9]:
-        # for seed in [0, 1, 2, 3, 4]:
+        # for seed in [0]:
         #     teacher_grid.append({
         #         "teacher": "umap",
         #         "n_components": 2,
@@ -382,19 +432,22 @@ if __name__ == "__main__":
         #     precompute_teacher_embeddings(teacher_grid[-1], config)
 
     # t-SNE combos
-    # for perp in np.unique(np.logspace(np.log10(5), np.log10(200), 10).astype(int))[::-1]:
-    for perp in np.unique(np.arange(10, 420, 20).astype(int)):
+    # for perp in np.unique(np.logspace(np.log10(5), np.log10(1000), 15).astype(int)): #newHydra
+    # for perp in np.unique(np.logspace(np.log10(5), np.log10(200), 10).astype(int)): # Macaque, Astro
+    # for perp in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))[8:]:
+    # for perp in [250, 300, 350]:
+    # for perp in np.unique(np.arange(10, 420, 20).astype(int)): # Hydra
     # for perp in np.unique(np.arange(5, 141, 5).astype(int)):
-    # for perp in [30]:
-        for seed in range(5):
-            teacher_grid.append({
-                "teacher": "tsne",
-                "n_components": 2,
-                "perplexity": perp,
-                "learning_rate": 'auto',
-                "seed": seed
-            })
-            precompute_teacher_embeddings(teacher_grid[-1], config)
+    # for perp in [    5,    11,    27,    62,   146,   341,   793,  1846,  4297]: # MNIST
+        # for seed in [0,1]:
+        #     teacher_grid.append({
+        #         "teacher": "tsne",
+        #         "n_components": 2,
+        #         "perplexity": perp,
+        #         "learning_rate": 'auto',
+        #         "seed": seed
+        #     })
+        #     precompute_teacher_embeddings(teacher_grid[-1], config)
 
     # Isomap combos
     # for n in np.unique(np.logspace(0, 2.9, 6).astype(int))[1:]:
@@ -405,8 +458,8 @@ if __name__ == "__main__":
     #     })
 
     # Spectral combos
-    # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 10).astype(int)):
-    #     for seed in [0, 1, 2, 3, 4]:
+    # for n in np.unique(np.logspace(np.log10(5), np.log10(100), 15).astype(int)):
+    #     for seed in [0]:
     #         teacher_grid.append({
     #             "teacher": "spectral",
     #             "n_components": 2,
@@ -416,14 +469,28 @@ if __name__ == "__main__":
     #         precompute_teacher_embeddings(teacher_grid[-1], config)
 
     # PCA
-    # for c in range(2, 21):
-    # for seed in [0, 1, 2, 3, 4]:
-    #     teacher_grid.append({
-    #         "teacher": "pca",
-    #         "n_components": 2,
-    #         "seed": seed
-    #     })
-    #     precompute_teacher_embeddings(teacher_grid[-1], config)
+    for c in np.unique(np.logspace(np.log10(2), np.log10(100), 15).astype(int))[:-4]:
+        for seed in [0]:
+            # teacher_grid.append({
+            #     "teacher": "pca",
+            #     "n_components": c,
+            #     "seed": seed
+            # })
+            # teacher_grid.append({
+            #     "teacher": "umap",
+            #     "n_components": c,
+            #     "t_n_neighbors": 9,
+            #     "min_dist": 0.1,
+            #     "seed": seed
+            # })
+            teacher_grid.append({
+                "teacher": "spectral",
+                "n_components": c,
+                "t_n_neighbors": 11,
+                "seed": seed
+            })
+            
+            precompute_teacher_embeddings(teacher_grid[-1], config)
 
 
     config.update({
@@ -436,16 +503,16 @@ if __name__ == "__main__":
         compare_teacher,
         name="drd_teacher_sweep",
         num_samples=1, 
-        resources_per_trial={"cpu": 4, "gpu": 0.5},  # Adjusted GPU allocation
+        resources_per_trial={"cpu": 4, "gpu":1},  # Adjusted GPU allocation
         config= config,
         verbose=1,
         max_failures=3,
         storage_path="/tmp/ray_results"
     )
 
-    base = Path(path)
-    base.mkdir(parents=True, exist_ok=True)
-    save_path = base / filename
-    analysis.results_df.to_csv(save_path)
+    # base = Path(path)
+    # base.mkdir(parents=True, exist_ok=True)
+    # save_path = base / filename
+    # analysis.results_df.to_csv(save_path)
 
-    print(f"Results saved to {save_path}")
+    # print(f"Results saved to {save_path}")
