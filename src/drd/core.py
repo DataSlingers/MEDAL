@@ -77,8 +77,8 @@ class AutoEncoder(nn.Module):
 class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU",
-                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, eta_min2=1e-16,
-                 device=None, clip_grad_norm=1.0, warmup = 0, 
+                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, eta_min2=1e-16, lr_restart = None,
+                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, new_scheduler = False,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -107,14 +107,17 @@ class DRD(BaseEstimator, TransformerMixin):
             activation = self.activation,
             bottleneck_activation=self.bottleneck_activation).to(self.device)
 
-        self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-5)
+        self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
         self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.opt_joint,
             T_max = T_max,
             eta_min=eta_min1,    
         )
+        if new_scheduler == True:
+            self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = 0.9, threshold=1e-4, patience=20, min_lr = 1e-7)
         self.scheduler2 = None
         self.criterion = nn.MSELoss().to(self.device)
+        self.lr_restart = lr_restart
 
     def fit(self, X, teacher_Z=None, verbose=True,
             phase=None, pretrained_path=None,
@@ -155,11 +158,12 @@ class DRD(BaseEstimator, TransformerMixin):
         loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         
         self.model.train()
-        report_interval = max(1, self.epochs // 100)
+        report_interval = max(1, self.epochs // 1000)
 
         distill_history, recon_history = [], []
         stable_counter = 0
         early_stopped = False
+        target_bands_saved = np.zeros(len(target_bands)) if target_bands else None ### TEMPORARY
         self.stable_band_ = None  
         self.stable_epoch_ = None
         best_recon_in_band = {}            
@@ -184,8 +188,6 @@ class DRD(BaseEstimator, TransformerMixin):
                     else:
                         lambda_d = self.lambda_d
                     distill_loss = self.criterion(z, teacher_z)
-                    # t_target = _align_teacher_to_latent(teacher_z, z)
-                    # distill_loss = self.criterion(z, t_target)
                     loss = recon_loss + lambda_d * distill_loss
                 
                 loss.backward()
@@ -196,19 +198,21 @@ class DRD(BaseEstimator, TransformerMixin):
                 epoch_recon_loss += recon_loss.item()
                 num_batches += 1
 
-            # checking if we need to switch scheduler
-            if epoch <= self.T_max: self.scheduler1.step() # for pretraining, just set T_max = epochs
-
-            if self.scheduler2 is None:
-                # at this moment, optimizer.param_groups[0]['lr'] is the end-of-sched1 LR
-                self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    self.opt_joint, 
-                    T_max=self.epochs-epoch, 
-                    eta_min=self.eta_min2)
-            self.scheduler2.step()
-            
             avg_distill = epoch_distill_loss / num_batches
             avg_recon = epoch_recon_loss / num_batches
+
+            # checking if we need to switch scheduler
+            if epoch <= self.T_max: self.scheduler1.step(avg_distill) # for pretraining, just set T_max = epochs
+            else:
+                if self.scheduler2 is None:
+                    # at this moment, optimizer.param_groups[0]['lr'] is the end-of-sched1 LR
+                    if self.lr_restart is not None:
+                        self.opt_joint.param_groups[0]['lr'] = self.lr_restart
+                    self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
+                        self.opt_joint, 
+                        T_max=self.epochs-epoch, 
+                        eta_min=self.eta_min2)
+                self.scheduler2.step()
             
             # Task: ensure stability and convergence
             if target_bands:
@@ -219,6 +223,20 @@ class DRD(BaseEstimator, TransformerMixin):
                 for idx, (tau_min, tau_max) in enumerate(target_bands):
                     if tau_min <= avg_distill <= tau_max:
                         current_band = idx
+                        ###### TEMPORARY CHKPTS
+                        if idx < len(target_bands) - 1 and not target_bands_saved[idx]:
+                            return_on_stable = False  # only return on stable for the last band
+                            base = Path(save_dir) / f"{prefix}_ckpts"
+                            base.mkdir(parents=True, exist_ok=True)
+                            ckpt_path = base / f"band{idx}.pt"
+
+                            state = {"model": _state_dict_cpu(self.model)}
+                            torch.save(state, ckpt_path)
+                            print(f"Saved model to {ckpt_path}, distill loss: {avg_distill:.6f}")
+                            target_bands_saved[idx] = 1
+                        elif idx == len(target_bands) - 1:
+                            return_on_stable = True
+                        ######
                         break
                 # perform stability check only if in a band and enough history exists
                 if current_band is not None and len(distill_history) >= stability_window:
@@ -241,38 +259,28 @@ class DRD(BaseEstimator, TransformerMixin):
 
                         prev = best_recon_in_band.get(current_band)
                         if (prev is None) or (avg_recon < prev[0] - 1e-12):
-                            if save_dir is not None:
-                                base = Path(save_dir) / f"{prefix}_band_ckpts"
-                                base.mkdir(parents=True, exist_ok=True)
-                                ckpt_path = base / f"band{current_band}_stable.pt"
-
-                                state = {"model": _state_dict_cpu(self.model)}
-                                torch.save(state, ckpt_path)
-                            
-                                best_recon_in_band[current_band] = (avg_recon, str(ckpt_path))
-                            else:
-                                best_recon_in_band[current_band] = (avg_recon, None)
+                            best_recon_in_band[current_band] = (avg_recon, None)
 
                             if return_on_stable:
-                                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon})
-                                early_stopped = True
+                                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon, 'lr': self.opt_joint.param_groups[0]['lr']})
                                 break
                 else:
                     stable_counter = 0  # reset if not in a band or not enough history
 
             # reporting losses
             if (epoch + 1) % report_interval == 0 or epoch == self.epochs - 1:
-                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon})
+                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon, 'lr': self.opt_joint.param_groups[0]['lr']})
             if early_stopped:
                 break
             
-        if (save_dir is not None) and (not early_stopped):
+        if save_dir is not None:
             base = Path(save_dir) / f"{prefix}_ckpts"
             base.mkdir(parents=True, exist_ok=True)
             ckpt_path = base / "final.pt"
 
             state = {"model": _state_dict_cpu(self.model)}
             torch.save(state, ckpt_path)
+            print(f"Saved model to {ckpt_path}")
         
         if phase == "pretrain" and pretrained_path is not None:
             pretrain_ckpt_path = Path(pretrained_path) / (
