@@ -13,9 +13,10 @@ import torch.nn.functional as F
     
 class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128),
-                 activation=nn.ReLU, bottleneck_activation=None):
+                 activation=nn.ReLU, bottleneck_activation=None, dropout_rate=0.1):
         super().__init__()
         self.ActivationCls = activation
+        self.dropout_rate = dropout_rate
 
         # --- ENCODER BLOCK ---
         encoder_layers = []
@@ -38,16 +39,29 @@ class AutoEncoder(nn.Module):
         decoder_layers = []
         prev_dim = latent_dim
         decoder_layers.append(nn.Linear(prev_dim, hidden_dims[-1]))
+        decoder_layers.append(nn.BatchNorm1d(hidden_dims[-1]))
+
         if activation is not None:
             decoder_layers.append(activation())
+        
+        if self.dropout_rate > 0:
+            decoder_layers.append(nn.Dropout(self.dropout_rate))
+
         prev_dim = hidden_dims[-1]
 
         for h in reversed(hidden_dims[:-1]):
             decoder_layers.append(nn.Linear(prev_dim, h))
+            decoder_layers.append(nn.BatchNorm1d(h))
             if activation is not None:
                 decoder_layers.append(activation())
+            
+            if self.dropout_rate > 0:
+                decoder_layers.append(nn.Dropout(self.dropout_rate))
+            
             prev_dim = h
+        
         decoder_layers.append(nn.Linear(prev_dim, input_dim))
+        
         print("decoder layers:", decoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
 
@@ -78,7 +92,7 @@ class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU",
                  lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, eta_min2=1e-16, lr_restart = None,
-                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, new_scheduler = False,
+                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -108,13 +122,8 @@ class DRD(BaseEstimator, TransformerMixin):
             bottleneck_activation=self.bottleneck_activation).to(self.device)
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
-        self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.opt_joint,
-            T_max = T_max,
-            eta_min=eta_min1,    
-        )
-        if new_scheduler == True:
-            self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = 0.9, threshold=1e-4, patience=20, min_lr = 1e-7)
+        self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
+        # self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(self.opt_joint, T_max = self.T_max, eta_min = self.eta_min1)
         self.scheduler2 = None
         self.criterion = nn.MSELoss().to(self.device)
         self.lr_restart = lr_restart
@@ -160,14 +169,16 @@ class DRD(BaseEstimator, TransformerMixin):
         self.model.train()
         report_interval = max(1, self.epochs // 1000)
 
+        # --- history and state init ---
         distill_history, recon_history = [], []
-        stable_counter = 0
+        self.stable_counter = 0
         early_stopped = False
         target_bands_saved = np.zeros(len(target_bands)) if target_bands else None ### TEMPORARY
         self.stable_band_ = None  
         self.stable_epoch_ = None
         best_recon_in_band = {}            
-
+        
+         # --- main training loop ---
         for epoch in tqdm(range(self.epochs), disable=not verbose):
             epoch_distill_loss = 0.0
             epoch_recon_loss = 0.0
@@ -201,75 +212,24 @@ class DRD(BaseEstimator, TransformerMixin):
             avg_distill = epoch_distill_loss / num_batches
             avg_recon = epoch_recon_loss / num_batches
 
+            distill_history.append(avg_distill)
+            recon_history.append(avg_recon)
+
             # checking if we need to switch scheduler
-            if epoch <= self.T_max: self.scheduler1.step(avg_distill) # for pretraining, just set T_max = epochs
-            else:
-                if self.scheduler2 is None:
-                    # at this moment, optimizer.param_groups[0]['lr'] is the end-of-sched1 LR
-                    if self.lr_restart is not None:
-                        self.opt_joint.param_groups[0]['lr'] = self.lr_restart
-                    self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
-                        self.opt_joint, 
-                        T_max=self.epochs-epoch, 
-                        eta_min=self.eta_min2)
-                self.scheduler2.step()
+            self._update_schedulers(epoch, avg_distill)
             
             # Task: ensure stability and convergence
             if target_bands:
-                distill_history.append(avg_distill)
-                recon_history.append(avg_recon)
-                # find which band (if any) we are in
-                current_band = None
-                for idx, (tau_min, tau_max) in enumerate(target_bands):
-                    if tau_min <= avg_distill <= tau_max:
-                        current_band = idx
-                        ###### TEMPORARY CHKPTS
-                        if idx < len(target_bands) - 1 and not target_bands_saved[idx]:
-                            return_on_stable = False  # only return on stable for the last band
-                            base = Path(save_dir) / f"{prefix}_ckpts"
-                            base.mkdir(parents=True, exist_ok=True)
-                            ckpt_path = base / f"band{idx}.pt"
-
-                            state = {"model": _state_dict_cpu(self.model)}
-                            torch.save(state, ckpt_path)
-                            print(f"Saved model to {ckpt_path}, distill loss: {avg_distill:.6f}")
-                            target_bands_saved[idx] = 1
-                        elif idx == len(target_bands) - 1:
-                            return_on_stable = True
-                        ######
-                        break
-                # perform stability check only if in a band and enough history exists
-                if current_band is not None and len(distill_history) >= stability_window:
-                    delta_dist = distill_history[-1] - distill_history[-stability_window]
-                    delta_recon = recon_history[-1] - recon_history[-stability_window]
-                    slope_dist = abs(delta_dist) / stability_window
-                    slope_recon = abs(delta_recon) / stability_window
-
-                    if (slope_dist < epsilon_distill  and
-                            slope_recon < epsilon_recon ):
-                        stable_counter += 1
-                    else:
-                        stable_counter = 0
-
-                    # when stable, save/replace ONE checkpoint for this band
-                    if stable_counter >= patience:
-                        # record band and epoch, optionally break early
-                        self.stable_band_ = current_band
-                        self.stable_epoch_ = epoch
-
-                        prev = best_recon_in_band.get(current_band)
-                        if (prev is None) or (avg_recon < prev[0] - 1e-12):
-                            best_recon_in_band[current_band] = (avg_recon, None)
-
-                            if return_on_stable:
-                                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon, 'lr': self.opt_joint.param_groups[0]['lr']})
-                                break
-                else:
-                    stable_counter = 0  # reset if not in a band or not enough history
-
+                early_stopped = self._check_stability_and_checkpoint(
+                    epoch, avg_distill, avg_recon, distill_history, recon_history,
+                    target_bands, stability_window, epsilon_distill, epsilon_recon, patience,
+                    return_on_stable, save_dir, prefix, target_bands_saved, best_recon_in_band
+                )
+            
             # reporting losses
             if (epoch + 1) % report_interval == 0 or epoch == self.epochs - 1:
-                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon, 'lr': self.opt_joint.param_groups[0]['lr']})
+                _report_or_print({'distill_loss': avg_distill, 'recon_loss': avg_recon, 'lr': self.opt_joint.param_groups[0]['lr'], "stability": self.stable_counter})
+            
             if early_stopped:
                 break
             
@@ -278,7 +238,7 @@ class DRD(BaseEstimator, TransformerMixin):
             base.mkdir(parents=True, exist_ok=True)
             ckpt_path = base / "final.pt"
 
-            state = {"model": _state_dict_cpu(self.model)}
+            state = {"model": self._state_dict_cpu()}
             torch.save(state, ckpt_path)
             print(f"Saved model to {ckpt_path}")
         
@@ -287,11 +247,92 @@ class DRD(BaseEstimator, TransformerMixin):
                 f"{prefix}_pretrain.pt" if prefix else "pretrain.pt"
             )
             pretrain_ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"model": _state_dict_cpu(self.model)}, pretrain_ckpt_path)
+            torch.save({"model":self._state_dict_cpu()}, pretrain_ckpt_path)
             return pretrain_ckpt_path
         
         return self
 
 
-def _state_dict_cpu(model: nn.Module):
-    return {k: v.detach().cpu() for k, v in model.state_dict().items()}
+    def _state_dict_cpu(self):
+        return {k: v.detach().cpu() for k, v in self.model.state_dict().items()}
+    
+    def _update_schedulers(self, epoch, avg_distill):
+        """Updates the learning rate schedulers, handling the switch if T_max is passed."""
+        if epoch <= self.T_max: 
+            self.scheduler1.step(avg_distill)
+            # self.scheduler1.step()
+        else:
+            # Switch to scheduler 2 (if T_max has passed)
+            if self.scheduler2 is None:
+                if self.lr_restart is not None:
+                    # Set LR to restart value before starting new schedule
+                    self.opt_joint.param_groups[0]['lr'] = self.lr_restart
+                
+                self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.opt_joint, 
+                    T_max=self.epochs - epoch, 
+                    eta_min=self.eta_min2)
+                
+            self.scheduler2.step()
+    
+    def _check_stability_and_checkpoint(self, epoch, avg_distill, avg_recon, 
+                                        distill_history, recon_history,
+                                        target_bands, stability_window, 
+                                        epsilon_distill, epsilon_recon, patience,
+                                        return_on_stable, save_dir, prefix, 
+                                        target_bands_saved, best_recon_in_band):
+        """
+        Checks for training stability within defined bands and saves checkpoints.
+        Returns (stable_counter, early_stop_flag).
+        """
+        current_band = None
+        
+        # 1. Check which band the current distillation loss falls into
+        for idx, (tau_min, tau_max) in enumerate(target_bands):
+            if tau_min <= avg_distill <= tau_max:
+                current_band = idx
+                ###### TEMPORARY CHKPTS
+                if not target_bands_saved[idx] and idx < len(target_bands) - 1:
+                    base = Path(save_dir) / f"{prefix}_ckpts"
+                    base.mkdir(parents=True, exist_ok=True)
+                    ckpt_path = base / f"band{idx}.pt"
+                    state = {"model": self._state_dict_cpu()}
+                    torch.save(state, ckpt_path)
+                    print(f"Saved model to {ckpt_path}, distill loss: {avg_distill:.6f}")
+
+                    target_bands_saved[idx] = 1
+                ######
+                break
+
+        # 2. Perform stability check only if in a band and enough history exists
+        early_stop_flag = False
+        
+        if current_band is not None and len(distill_history) >= stability_window:
+            delta_dist = distill_history[-1] - distill_history[-stability_window]
+            delta_recon = recon_history[-1] - recon_history[-stability_window]
+            slope_dist = abs(delta_dist) / stability_window
+            slope_recon = abs(delta_recon) / stability_window
+
+            is_stable = (slope_dist < epsilon_distill) and (slope_recon < epsilon_recon)
+
+            if is_stable:
+                self.stable_counter += 1
+            else:
+                self.stable_counter = 0
+
+            # 3. Handle confirmed stability (patience reached)
+            if self.stable_counter >= patience:
+                self.stable_band_ = current_band
+                self.stable_epoch_ = epoch
+                
+                # Check if this is the best reconstruction loss found for this band
+                prev = best_recon_in_band.get(current_band)
+                if (prev is None) or (avg_recon < prev[0] - 1e-12):
+                    best_recon_in_band[current_band] = (avg_recon, None)
+                    
+                    if return_on_stable and current_band == len(target_bands) - 1:
+                        early_stop_flag = True # Early stop for the final band
+        else:
+            self.stable_counter = 0 # Reset if not in band or not enough history
+
+        return early_stop_flag
