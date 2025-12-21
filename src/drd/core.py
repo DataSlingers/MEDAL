@@ -13,10 +13,11 @@ import torch.nn.functional as F
     
 class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128),
-                 activation=nn.ReLU, bottleneck_activation=None, dropout_rate=0.1):
+                 activation=nn.ReLU, bottleneck_activation=None, dropout_rate=0.1, use_batchnorm=False):
         super().__init__()
         self.ActivationCls = activation
         self.dropout_rate = dropout_rate
+        self.use_batchnorm = use_batchnorm
 
         # --- ENCODER BLOCK ---
         encoder_layers = []
@@ -39,7 +40,7 @@ class AutoEncoder(nn.Module):
         decoder_layers = []
         prev_dim = latent_dim
         decoder_layers.append(nn.Linear(prev_dim, hidden_dims[-1]))
-        decoder_layers.append(nn.BatchNorm1d(hidden_dims[-1]))
+        if use_batchnorm: decoder_layers.append(nn.BatchNorm1d(hidden_dims[-1]))
 
         if activation is not None:
             decoder_layers.append(activation())
@@ -51,7 +52,7 @@ class AutoEncoder(nn.Module):
 
         for h in reversed(hidden_dims[:-1]):
             decoder_layers.append(nn.Linear(prev_dim, h))
-            decoder_layers.append(nn.BatchNorm1d(h))
+            if use_batchnorm: decoder_layers.append(nn.BatchNorm1d(h))
             if activation is not None:
                 decoder_layers.append(activation())
             
@@ -68,14 +69,16 @@ class AutoEncoder(nn.Module):
         self._init_identity()
 
     def _init_identity(self, eps=1e-3):
-        # initialize dense Linear layers close to identity; SparseLinearFirst has its own init
+        # initialize dense nonlinear layers close to identity
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                try:
-                    nn.init.eye_(m.weight)
-                except Exception:
+                if self.use_batchnorm: 
+                    # shallower networks, use this
                     nn.init.normal_(m.weight, mean=0.0, std=eps)
-                nn.init.zeros_(m.bias)
+                else: 
+                    nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='selu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
         """
@@ -92,7 +95,7 @@ class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU",
                  lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, eta_min2=1e-16, lr_restart = None,
-                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9,
+                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -113,13 +116,15 @@ class DRD(BaseEstimator, TransformerMixin):
         self.eta_min1 = eta_min1
         self.eta_min2 = eta_min2
         self.T_max = T_max
+        self.use_batchnorm = use_batchnorm
 
         self.model = AutoEncoder(
             input_dim, 
             latent_dim, 
             hidden_dims, 
             activation = self.activation,
-            bottleneck_activation=self.bottleneck_activation).to(self.device)
+            bottleneck_activation=self.bottleneck_activation,
+            use_batchnorm=self.use_batchnorm).to(self.device)
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
         self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
