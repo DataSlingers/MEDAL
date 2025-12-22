@@ -406,32 +406,32 @@ if __name__ == "__main__":
     # UMAP combos
 
     for teacher_seed in range(5):
-        # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)): # astro, mnist
-        # for n in np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)): # tasic, hydra
-        #     teacher_grid.append({
-        #         "teacher": "umap",
-        #         "n_components": 2,
-        #         "t_n_neighbors": int(n),
-        #         "min_dist": 0.1,
-        #         "teacher_seed": teacher_seed
-        #     })
-        #     precompute_teacher_embeddings(teacher_grid[-1], config)
+        # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)): # astro, mnist, macaque
+        for n in np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)): # tasic, hydra, macaque
+            teacher_grid.append({
+                "teacher": "umap",
+                "n_components": 2,
+                "t_n_neighbors": int(n),
+                "min_dist": 0.1,
+                "teacher_seed": teacher_seed
+            })
+            precompute_teacher_embeddings(teacher_grid[-1], config)
 
         # t-SNE combos
         # for perp in np.unique(np.logspace(np.log10(5), np.log10(5000), 10).astype(int)): #newHydra
         # for perp in np.unique(np.logspace(np.log10(5), np.log10(6000), 10).astype(int)): # tasic
-        for perp in np.unique(np.logspace(np.log10(5), np.log10(500), 10).astype(int)): # Macaque
+        # for perp in np.unique(np.logspace(np.log10(5), np.log10(500), 10).astype(int)): # Macaque
         # for perp in np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int)): #newAstro 
         # for perp in np.unique(np.arange(10, 420, 20).astype(int)): # Hydra
         # for perp in [5, 11,  27, 62, 146,  341, 793, 1846, 4297]:# MNIST
-            teacher_grid.append({
-                "teacher": "tsne",
-                "n_components": 2,
-                "perplexity": int(perp),
-                "learning_rate": 'auto',
-                "teacher_seed": teacher_seed
-            })
-            precompute_teacher_embeddings(teacher_grid[-1], config)
+            # teacher_grid.append({
+            #     "teacher": "tsne",
+            #     "n_components": 2,
+            #     "perplexity": int(perp),
+            #     "learning_rate": 'auto',
+            #     "teacher_seed": teacher_seed
+            # })
+            # precompute_teacher_embeddings(teacher_grid[-1], config)
 
         # Isomap combos
         # for n in np.unique(np.logspace(0, 2.9, 6).astype(int))[1:]:
@@ -454,14 +454,14 @@ if __name__ == "__main__":
 
         # PCA
         # for c in np.unique(np.logspace(np.log10(2), np.log10(100), 15).astype(int))[::-1]:
-        for c in [2]:
-            teacher_grid.append({
-                "teacher": "pca",
-                "n_components": c,
-                "teacher_seed": teacher_seed
-            })
+        # for c in [2]:
+        #     teacher_grid.append({
+        #         "teacher": "pca",
+        #         "n_components": c,
+        #         "teacher_seed": teacher_seed
+        #     })
             
-            precompute_teacher_embeddings(teacher_grid[-1], config)
+            # precompute_teacher_embeddings(teacher_grid[-1], config)
 
 
     config.update({

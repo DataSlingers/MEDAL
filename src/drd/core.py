@@ -13,7 +13,8 @@ import torch.nn.functional as F
     
 class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128),
-                 activation=nn.ReLU, bottleneck_activation=None, dropout_rate=0.1, use_batchnorm=False):
+                 activation=nn.ReLU, bottleneck_activation=None, dropout_rate=0.1, use_batchnorm=False,
+                 final_activation=None):
         super().__init__()
         self.ActivationCls = activation
         self.dropout_rate = dropout_rate
@@ -62,6 +63,8 @@ class AutoEncoder(nn.Module):
             prev_dim = h
         
         decoder_layers.append(nn.Linear(prev_dim, input_dim))
+        if final_activation is not None:
+            decoder_layers.append(final_activation())
         
         print("decoder layers:", decoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
