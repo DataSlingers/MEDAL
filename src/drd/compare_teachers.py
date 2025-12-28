@@ -1,180 +1,66 @@
 # run teacher evaluation as a grid search on ray
 from ray import tune
-from utils.eval_utils import make_student, load_and_split, eval_student, get_teacher_embeddings
+from utils.eval_utils import make_student, load_and_split, get_teacher_embeddings
 import os
 import numpy as np
 from pathlib import Path
-
+import torch.nn as nn
+from src.drd.dictionaries import DISTILL_BANDS_DICT, TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS
+import itertools
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
-DISTILL_BANDS_DICT = {
-    "gene_cancer": [(1e-12, 5e-7)],
-    "mnist": [ (1e-12, 9e-6)], #(1e-1, 5), (1e-2, 1e-1), (1e-4, 1e-2), (1e-6,1e-4), (9e-8, 1e-6),
-    "single_cell": [(1e-12, 5e-7)],
-    "wine": [(1e-12, 9e-8)],
-    "hydra": [(1e-12, 9e-6)],
-    #[(1e-1, 1e8), (1e-2, 1e-1), (1e-4, 1e-2), (1e-6,1e-4), (9e-8, 1e-6), (1e-12, 9e-8)],
-    "pbmc": [(1e-12, 9e-6)],
-    "astro": [(1e-12, 9e-6)],
-    "cortical": [(1e-12, 9e-6)],
-    "macaque": [(1e-12, 9e-6)],
-}
 
-N_SAMPLES = {
-    "gene_cancer": 801,
-    "mnist": 10000,
-    "wine": 178,
-    "single_cell": 3589,
-    "hydra": 25052,
-    "pbmc":5858,
-    "astro": 3286,
-    "cortical": 23822
-}
 
-INIT_CONFIG = {
-    "gene_cancer": {
-        "lr": 1e-3, #tune.grid_search([1e-5, 1e-4, 5e-4, 5e-5]), #1e-3,  
-        "lambda_d": 10000,#30000, # 1500
-        # "lambda_d": 0,
-        "eta_min1": 1e-11, #1e-9-
-        "eta_min2": 0, 
-        "hidden_dims":[1000, 1000, 1000, 1000],
-        "activation": "SELU",
-        # "activation": None,
-        "bottleneck_activation": None,
-        "max_epochs": 7000,
-        "T_max_ratio": 1, #0.5,
-        # "T_max": 7000,
-        "warmup": 0, 
-        "test_size": 0.2,
-        "batch_size": 100
-    },
-    "wine": {
-        "lr": 0.02, #0.003233466538536306,
-        "lambda_d": 20000,
-        "eta_min1": 1e-8, #6.076040435352558e-08,
-        "eta_min2": 1.2312179372780289e-17,
-        "hidden_dims": [258, 258, 258, 258],
-        "activation": "SELU",
-        "bottleneck_activation":  None,
-        'max_epochs': 130000, 
-        'T_max_ratio': 0.9,# 0.7,
-        "warmup": 0, 
-        "batch_size": 100
-    },
-    "mnist": { 
-        "lr": 1e-3, #1e-3 (ROP), # 2e-5, #0.000269 (tsne),	
-        "lambda_d": 10000, # 3000
-        # "lambda_d": 0, # for vanilla AE
-        "eta_min1": 1e-7, #1e-5, # 7.256237e-10, 1e-10(spectral)
-        "hidden_dims": [1000, 1000, 1000, 1000, 1000], 
-        "activation": "SELU",
-        # "activation": None,
-        "bottleneck_activation": None,
-        "max_epochs":30000, #100000,
-        "T_max_ratio":1,
-        "batch_size": 256,
-        "warmup": 0, 
-        "test_size":0.2,
-        "t_patience": 20,
-    },
-    "single_cell": {
-        "lr": 0.001,
-        "lambda_d": 50000,
-        "eta_min1": 5.01855e-05, 
-        "eta_min2": 4.1779e-07,
-        "hidden_dims": [294, 294, 294, 294, 294, 294, 294, 294, 294],
-        "activation": "SELU",
-        "bottleneck_activation": None,
-        'max_epochs': 20000, 
-        'T_max_ratio': 0.6,
-        "warmup": 0, 
-        "batch_size": 10000,
-    },
-    "hydra":{
-        "lr": 0.005, #0.0005 (old lr),# 0.005 (new lr), 
-        "lambda_d": 30000, #30000,
-        # "lambda_d": 0,
-        # "eta_min1":  9.10708e-06, 
-        # "eta_min2": 8.51602e-10, 
-        "eta_min1":  1e-07, 
-        "hidden_dims": [309, 1792, 1792, 1792],
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 20000,
-        'T_max_ratio': 1,  #0.8,
-        "warmup": 1500, 
-        "batch_size": 51200,
-        "test_size": 0.2,
-        "t_patience":20,
-        "t_factor": 0.95,
-        "use_batchnorm": True
-    },
-    "pbmc":{
-        "lr": 0.001, 
-        "lambda_d": 50000, 
-        "eta_min1":3.4443667740771654e-05,
-        "eta_min2": 1.069202395077256e-07,
-        "hidden_dims": [500, 500, 500, 500, 500],
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 20000,
-        'T_max_ratio': 0.7,
-        "warmup": 3000, 
-        "batch_size": 10000,
-    },
-    "astro":{
-        "lr": 0.0005, #0.00139911,
-        "lambda_d": 10000,
-        "eta_min1": 1e-07, #3.55767e-07,
-        "hidden_dims": [700] * 15,
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 60000,
-        'T_max_ratio': 1, #0.75,
-        "warmup": 0, 
-        "batch_size": 25600,
-        "test_size": 0.2,
-        "t_patience":70,
-        "t_factor": 0.9,
-        "use_batchnorm": False
-    },
-    "cortical":{
-        "lr": 0.00268681,
-        "lambda_d": 50000, #30000,
-        # "eta_min1": 7.936e-05, #7.936e-05,
-        # "eta_min2": 1e-7,
-        "eta_min1": 1e-7,
-        "hidden_dims": [309, 1792, 1792, 1792],
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 6000,
-        'T_max_ratio': 1, #0.7
-        "warmup": 100, 
-        "batch_size": 50000,
-        "test_size": 0.2,
-        "t_patience":20,
-        "t_factor": 0.95,
-        "use_batchnorm": True
-    },
-    "macaque":{       
-        "lr":0.000341178, 
-        "lambda_d": 10000, # 50000, 200000
-        "eta_min1": 1e-7, #6.24882e-06 (tsne), 1e-7 (umap)
-        "hidden_dims": [700] * 15,
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 25000,
-        'T_max_ratio': 1, #0.7, 0.8
-        "warmup": 0, 
-        "batch_size": 1024,
-        "test_size":0.2,
-        "t_patience":70,
-        "t_factor": 0.9,
-        "use_batchnorm": False
-    },
-}
+def get_dataset_config(dataset_name, model_variant="medal"):
+    """
+    Returns the base config and applies variant-specific overrides.
+    Variants: 'drd' (default), 'vanillaAE', 'linearAE'
+    """
+    config = INIT_CONFIG[dataset_name].copy()
+    
+    if model_variant == "vanillaAE":
+        config["lambda_d"] = 0
+        # Add other vanilla-specific defaults if they aren't in INIT_CONFIG
+        if dataset_name == "mnist":
+            config["lr"] = 1e-4
+            config["t_factor"] = 0.95
+        
+    elif model_variant == "linearAE":
+        config["activation"] = None
+        
+    config["model_variant"] = model_variant
+    return config
+
+def build_teacher_grid(dataset_name, teachers_to_run, seeds=range(1), mode = "teacher_sweep"):
+    grid = []
+    if mode == "teacher_sweep":
+        spec = TEACHER_SWEEP_SPECS.get(dataset_name, {})
+    elif mode == "rank_sweep":
+        spec = RANK_SWEEP_SPECS.get(dataset_name, {})
+    
+    for teacher_name in teachers_to_run:
+        if teacher_name not in spec:
+            print(f"Warning: No spec found for {teacher_name} on {dataset_name}. Skipping.")
+            continue
+            
+        params = spec[teacher_name]
+        # Get all combinations of parameters for this teacher
+        keys, values = zip(*params.items())
+        param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
+        
+        for seed in seeds:
+            for combo in param_combinations:
+                # Standardize keys to match your existing precompute/train logic
+                config_item = {
+                    "teacher": teacher_name,
+                    "teacher_seed": seed,
+                }
+                
+                config_item.update({k: v for k, v in combo.items()})
+                grid.append(config_item)
+                
+    return grid
 
 def precompute_teacher_embeddings(tc, config):
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
@@ -302,12 +188,14 @@ def compare_teacher(config):
         "lambda_d": config['lambda_d'],
         "activation": config['activation'],
         "bottleneck_activation": config["bottleneck_activation"],
+        "final_activation": config["final_activation"] if "final_activation" in config else None,
         "hidden_dims": config["hidden_dims"],
         "adamw_weight_decay": config['adamw_weight_decay'] if "adamw_weight_decay" in config else 1e-5,
         "factor": config['t_factor'] if "t_factor" in config else 0.9,
         "patience": config["t_patience"],
         "use_batchnorm": config['use_batchnorm'] if "use_batchnorm" in config else False,
-
+        "dropout_rate": config['dropout_rate'] if "dropout_rate" in config else 0.1,
+        "criterion": config['criterion'] if "criterion" in config else nn.MSELoss
     }
     
     # Create student model
@@ -330,23 +218,23 @@ def compare_teacher(config):
     elif teacher == "spectral":
         prefix = f'{teacher}{tc["n_components"]}_{tc["t_n_neighbors"]}_{tc["teacher_seed"]}'
 
+    # accounting for vanillaAE and linearAE
+    if config["model_variant"] == "vanillaAE":
+        prefix = f'vanillaAE_{prefix}_{tc["n_components"]}_{tc["teacher_seed"]}'
+    else:
+        prefix = f'{config["model_variant"]}_{prefix}'
 
     distill_bands = DISTILL_BANDS_DICT[config['dataset_name']]
     student.fit(X_tr, Z_tr, config['verbose'], 
                 phase="finetune", pretrained_path=config['pretrained_path'],
                 target_bands=distill_bands, 
                 stability_window=20, 
-                epsilon_distill=1e-7, epsilon_recon=1e-2, # 1e-2 for macauqe, others 1e-3 
+                epsilon_distill=1e-7, epsilon_recon=1e-3, # 1e-2 for macaque, others 1e-3 
                 patience=50, # unit = epoch
                 return_on_stable=True,
                 # checkpointing
-                # save_dir=None,
-                # save_dir = '/tmp/results/chkpt/{config["dataset_name"]}',
-                save_dir = PATH_PREFIX + f'/tmp_results/chkpt/{config["dataset_name"]}',
-                # save_dir = f'/tmp/results/chkpt/{config["dataset_name"]}', 
+                save_dir = PATH_PREFIX + f'/tmp_results/chkpt/{config["dataset_name"]}', 
                 prefix = prefix,
-                # prefix=f'vanillaAE_{tc["n_components"]}_{tc["teacher_seed"]}',
-                # prefix=f'linearAE_{tc["teacher"]}{tc["n_components"]}_{tc["teacher_seed"]}'
                 )
 
 # def pretrain_task(config, num_pretrain_epochs=10):
@@ -386,11 +274,13 @@ def compare_teacher(config):
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "macaque"
+    dataset_name = "cortical"
+    variant = "medal"
+    teachers = ["pca", "umap", "spectral"]
     path = f"{PATH_PREFIX}/compare_teachers"
     filename=f"{dataset_name}_umap.csv" 
 
-    config = INIT_CONFIG[dataset_name].copy()
+    config = get_dataset_config(dataset_name, variant).copy()
     config.update({
         "dataset_name": dataset_name,
         "verbose": False,
@@ -401,68 +291,11 @@ if __name__ == "__main__":
     # pretrain_ckpt_path = pretrain_task(config, num_pretrain_epochs=1000)
     # print(f"Pretraining completed. Checkpoint saved at {pretrain_ckpt_path}")
 
-    teacher_grid = []
+    teacher_grid = build_teacher_grid(dataset_name, teachers, seeds=range(1), mode = "rank_sweep")
+    print(f"Running {variant} on {dataset_name} with {len(teacher_grid)} teacher configs.")
 
-    # UMAP combos
-
-    for teacher_seed in range(5):
-        # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)): # astro, mnist, macaque
-        for n in np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)): # tasic, hydra, macaque
-            teacher_grid.append({
-                "teacher": "umap",
-                "n_components": 2,
-                "t_n_neighbors": int(n),
-                "min_dist": 0.1,
-                "teacher_seed": teacher_seed
-            })
-            precompute_teacher_embeddings(teacher_grid[-1], config)
-
-        # t-SNE combos
-        # for perp in np.unique(np.logspace(np.log10(5), np.log10(5000), 10).astype(int)): #newHydra
-        # for perp in np.unique(np.logspace(np.log10(5), np.log10(6000), 10).astype(int)): # tasic
-        # for perp in np.unique(np.logspace(np.log10(5), np.log10(500), 10).astype(int)): # Macaque
-        # for perp in np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int)): #newAstro 
-        # for perp in np.unique(np.arange(10, 420, 20).astype(int)): # Hydra
-        # for perp in [5, 11,  27, 62, 146,  341, 793, 1846, 4297]:# MNIST
-            # teacher_grid.append({
-            #     "teacher": "tsne",
-            #     "n_components": 2,
-            #     "perplexity": int(perp),
-            #     "learning_rate": 'auto',
-            #     "teacher_seed": teacher_seed
-            # })
-            # precompute_teacher_embeddings(teacher_grid[-1], config)
-
-        # Isomap combos
-        # for n in np.unique(np.logspace(0, 2.9, 6).astype(int))[1:]:
-        # # for n in [15, 50]:
-        #     teacher_grid.append({
-        #         "teacher": "isomap",
-        #         "t_n_neighbors": n,
-        #     })
-
-        # Spectral combos
-        # for n in np.unique(np.logspace(np.log10(5), np.log10(200), 15).astype(int)): #Tasic, Hydra
-        # for n in np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)): #MNIST, Astro
-            # teacher_grid.append({
-            #     "teacher": "spectral",
-            #     "n_components": 2,
-            #     "t_n_neighbors":int(n),
-            #     "teacher_seed": teacher_seed
-            # })
-            # precompute_teacher_embeddings(teacher_grid[-1], config)
-
-        # PCA
-        # for c in np.unique(np.logspace(np.log10(2), np.log10(100), 15).astype(int))[::-1]:
-        # for c in [2]:
-        #     teacher_grid.append({
-        #         "teacher": "pca",
-        #         "n_components": c,
-        #         "teacher_seed": teacher_seed
-        #     })
-            
-            # precompute_teacher_embeddings(teacher_grid[-1], config)
-
+    for tc in teacher_grid:
+        precompute_teacher_embeddings(tc, config)
 
     config.update({
         "teacher_config": tune.grid_search(teacher_grid),

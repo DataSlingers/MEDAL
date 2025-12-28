@@ -1,14 +1,11 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import numpy as np
-import os
 from sklearn.base import BaseEstimator, TransformerMixin
 from tqdm import tqdm
 from ray import tune
 from pathlib import Path
-from torch.utils.data import DataLoader, TensorDataset, Dataset
-from src.drd.loss import get_loss_function
+from torch.utils.data import DataLoader, TensorDataset
 import torch.nn.functional as F
     
 class AutoEncoder(nn.Module):
@@ -41,7 +38,8 @@ class AutoEncoder(nn.Module):
         decoder_layers = []
         prev_dim = latent_dim
         decoder_layers.append(nn.Linear(prev_dim, hidden_dims[-1]))
-        if use_batchnorm: decoder_layers.append(nn.BatchNorm1d(hidden_dims[-1]))
+        if use_batchnorm:
+            decoder_layers.append(nn.BatchNorm1d(hidden_dims[-1]))
 
         if activation is not None:
             decoder_layers.append(activation())
@@ -97,8 +95,10 @@ class AutoEncoder(nn.Module):
 class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU",
+                 final_activation = None,
+                 criterion=nn.MSELoss,
                  lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, eta_min2=1e-16, lr_restart = None,
-                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False,
+                 device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -109,6 +109,7 @@ class DRD(BaseEstimator, TransformerMixin):
         self.hidden_dims = hidden_dims
         self.activation = getattr(nn, activation) if isinstance(activation, str) else activation
         self.bottleneck_activation = getattr(nn, bottleneck_activation) if isinstance(bottleneck_activation, str) else None
+        self.final_activation = getattr(nn, final_activation) if isinstance(final_activation, str) else final_activation
         self.lambda_d = lambda_d
         self.lr = lr
         self.epochs = epochs
@@ -120,6 +121,7 @@ class DRD(BaseEstimator, TransformerMixin):
         self.eta_min2 = eta_min2
         self.T_max = T_max
         self.use_batchnorm = use_batchnorm
+        self.dropout_rate = dropout_rate
 
         self.model = AutoEncoder(
             input_dim, 
@@ -127,13 +129,15 @@ class DRD(BaseEstimator, TransformerMixin):
             hidden_dims, 
             activation = self.activation,
             bottleneck_activation=self.bottleneck_activation,
+            final_activation=self.final_activation,
+            dropout_rate=self.dropout_rate,
             use_batchnorm=self.use_batchnorm).to(self.device)
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
         self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
         # self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(self.opt_joint, T_max = self.T_max, eta_min = self.eta_min1)
         self.scheduler2 = None
-        self.criterion = nn.MSELoss().to(self.device)
+        self.criterion = criterion().to(self.device)
         self.lr_restart = lr_restart
 
     def fit(self, X, teacher_Z=None, verbose=True,
