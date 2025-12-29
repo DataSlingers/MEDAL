@@ -11,11 +11,10 @@ import itertools
 
 PATH_PREFIX = "/shared/share_mala/irchang/drd"
 
-
-def get_dataset_config(dataset_name, model_variant="medal"):
+def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
     """
     Returns the base config and applies variant-specific overrides.
-    Variants: 'drd' (default), 'vanillaAE', 'linearAE'
+    Variants: 'medal' (default), 'vanillaAE', 'linearAE'
     """
     config = INIT_CONFIG[dataset_name].copy()
     
@@ -28,8 +27,13 @@ def get_dataset_config(dataset_name, model_variant="medal"):
         
     elif model_variant == "linearAE":
         config["activation"] = None
+        config["use_batchnorm"] = False
+        config["dropout_rate"] = 0.0
         
     config["model_variant"] = model_variant
+    config["dataset_name"] = dataset_name
+    if update_kws:
+        config.update(update_kws)
     return config
 
 def build_teacher_grid(dataset_name, teachers_to_run, seeds=range(1), mode = "teacher_sweep"):
@@ -179,11 +183,9 @@ def compare_teacher(config):
     student_kwargs = {
         "epochs": config['max_epochs'], 
         "batch_size": config['batch_size'], 
-        "lambda_reg": 0.0, 
         "warmup": config.get('warmup', 0),  # Use get for optional params
         "lr": config['lr'], 
         "eta_min1": config["eta_min1"], 
-        "eta_min2": config["eta_min2"] if "eta_min2" in config else 0, 
         "T_max": int(config['max_epochs'] * config["T_max_ratio"]) if "T_max_ratio" in config else config["T_max"], 
         "lambda_d": config['lambda_d'],
         "activation": config['activation'],
@@ -203,7 +205,7 @@ def compare_teacher(config):
         method="drd",
         input_dim=X_tr.shape[1],
         latent_dim = tc["n_components"] if "n_components" in tc else 2,
-        device=DEVICE,
+        device="cuda",
         **student_kwargs,
     )
     
@@ -220,11 +222,13 @@ def compare_teacher(config):
 
     # accounting for vanillaAE and linearAE
     if config["model_variant"] == "vanillaAE":
-        prefix = f'vanillaAE_{prefix}_{tc["n_components"]}_{tc["teacher_seed"]}'
+        prefix = f'vanillaAE_{tc["n_components"]}_{tc["teacher_seed"]}'
     else:
         prefix = f'{config["model_variant"]}_{prefix}'
+    
+    prefix = f'{config["dataset_name"]}/{prefix}'
 
-    distill_bands = DISTILL_BANDS_DICT[config['dataset_name']]
+    distill_bands = config["distill_bands"] if "distill_bands" in config else [(1e-12, 9e-6)]
     student.fit(X_tr, Z_tr, config['verbose'], 
                 phase="finetune", pretrained_path=config['pretrained_path'],
                 target_bands=distill_bands, 
@@ -233,7 +237,7 @@ def compare_teacher(config):
                 patience=50, # unit = epoch
                 return_on_stable=True,
                 # checkpointing
-                save_dir = PATH_PREFIX + f'/tmp_results/chkpt/{config["dataset_name"]}', 
+                save_dir = config["save_dir"], 
                 prefix = prefix,
                 )
 
@@ -274,20 +278,23 @@ def compare_teacher(config):
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "cortical"
-    variant = "medal"
-    teachers = ["pca", "umap", "spectral"]
-    path = f"{PATH_PREFIX}/compare_teachers"
-    filename=f"{dataset_name}_umap.csv" 
+    dataset_name = "gene_cancer"
+    variant = "linearAE"
+    teachers = ["pca"]
 
-    config = get_dataset_config(dataset_name, variant).copy()
-    config.update({
-        "dataset_name": dataset_name,
+    config = get_dataset_config(dataset_name, variant, update_kws={
         "verbose": False,
         "pretrained_path": None,
         "retrain_teacher": False,
+        "save_dir": PATH_PREFIX + f'/tmp_results/chkpt',
         # f'/user/bnc2119/drd/results/pretrain/{dataset_name}_pretrain.pt',
-    })
+    }).copy()
+    # config.update({
+    #     "verbose": False,
+    #     "pretrained_path": None,
+    #     "retrain_teacher": False,
+    #     # f'/user/bnc2119/drd/results/pretrain/{dataset_name}_pretrain.pt',
+    # })
     # pretrain_ckpt_path = pretrain_task(config, num_pretrain_epochs=1000)
     # print(f"Pretraining completed. Checkpoint saved at {pretrain_ckpt_path}")
 
@@ -311,12 +318,5 @@ if __name__ == "__main__":
         config= config,
         verbose=1,
         max_failures=3,
-        storage_path="/tmp/ray_results"
+        storage_path="/tmp/ray_results",
     )
-
-    base = Path(path) 
-    base.mkdir(parents=True, exist_ok=True)
-    save_path = base / filename
-    # analysis.results_df.to_csv(save_path)
-
-    # print(f"Results saved to {save_path}")
