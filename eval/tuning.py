@@ -347,8 +347,22 @@ def architecture_analysis_grid(dataset, mode):
     })
 
     if mode == "activation":
-        BASE_INIT_CONFIG["activation"] = tune.grid_search(["ReLU", "SELU"])
+        BASE_INIT_CONFIG["activation"] = tune.grid_search(["ReLU", "SELU", None])
         BASE_INIT_CONFIG["bottleneck_activation"] = tune.grid_search(["ReLU", "SELU", None])
+        BASE_INIT_CONFIG["use_batchnorm"] = False
+    elif mode == "depth":
+        if dataset == "mnist":
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[2378] * 2, [1000] * 4, [867] * 6, [734] * 8])
+            BASE_INIT_CONFIG["use_batchnorm"] = False
+        elif dataset == "gene_cancer":
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[5734] * 2, [1000] * 4, [1895] * 6, [1563] * 8])
+            BASE_INIT_CONFIG["use_batchnorm"] = False
+        elif dataset == "darmarnis":
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[1809] * 2, [1000] * 4, [830] * 6, [682] * 8])
+            BASE_INIT_CONFIG["use_batchnorm"] = False
+    elif mode == "width":
+        BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[200] *3, [500] * 3, [1000] * 3, [5000]*3])
+        BASE_INIT_CONFIG["use_batchnorm"] = False 
     else:
         raise ValueError(f"Unknown mode: {mode}")
     
@@ -358,13 +372,21 @@ TEACHER_SPECS = {
     "gene_cancer": {
         "umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
         "spectral": {"t_n_neighbors": 5, "n_components": 2},
-        "tsne": {"perplexity": 5, "n_components": 2},
+        "tsne": {"perplexity": 5, "learning_rate": "auto","n_components": 2},
+	"pca": {"n_components": 2}
     },
     "mnist": {
         "umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
         "spectral": {"t_n_neighbors": 5, "n_components": 2},
-        "tsne": {"perplexity": 5, "n_components": 2},
+        "tsne": {"perplexity": 5, "learning_rate": "auto","n_components": 2},
+	"pca": {"n_components": 2}
     },
+    "darmanis": {
+	"umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
+	"spectral": {"t_n_neighbors": 5, "n_components": 2},
+        "tsne": {"perplexity": 5, "learning_rate": "auto", "n_components": 2},
+	"pca": {"n_components": 2}
+    }
 }
 
 
@@ -384,11 +406,11 @@ def build_teacher_grid(dataset_name, teacher_name):
     return params
 
 
-MODE = "activation"
+MODE = "depth"
 DEVICE = "cuda"
-dataset_name = ["gene_cancer"]
-teacher_name = "umap" # replace with "umap", "isomap", "spectral", "pca", ...
-PATH_PREFIX = "/shared/share_mala/irchang/drd"
+dataset_name = ["mnist"]
+teacher_name = "tsne" # replace with "umap", "isomap", "spectral", "pca", ...
+PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data" #"/shared/share_mala/irchang/drd"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
 ahbs = AsyncHyperBandScheduler(
@@ -415,11 +437,11 @@ for data_name in dataset_name:
     analysis = tune.run(
         compare_teacher,
         name="drd_asynchyperband_distill_optimization",
-        num_samples=5, 
+        num_samples=1, 
         resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
         config= config,
         verbose=1,
-        max_failures=3,
+        max_failures=0,
         scheduler=ahbs,
         storage_path="/tmp/ray_results",
     )

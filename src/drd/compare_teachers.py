@@ -9,7 +9,7 @@ from src.drd.dictionaries import DISTILL_BANDS_DICT, TEACHER_SWEEP_SPECS, INIT_C
 import itertools
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
-PATH_PREFIX = "/shared/share_mala/irchang/drd"
+PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data"
 
 def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
     """
