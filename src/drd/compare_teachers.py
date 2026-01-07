@@ -68,7 +68,7 @@ def build_teacher_grid(dataset_name, teachers_to_run, seeds=range(1), mode = "te
 
 def precompute_teacher_embeddings(tc, config):
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
-    load_this_seed = tc['teacher_seed'] if config['retrain_teacher'] else 0
+    load_this_seed = 0
     try:
         # 'xb' = create file, fail if it already exists
         if tc['teacher'] == "umap":
@@ -84,7 +84,7 @@ def precompute_teacher_embeddings(tc, config):
                     n_components= tc["n_components"] if "n_components" in tc else 2,
                     n_neighbors=tc["t_n_neighbors"], 
                     min_dist=tc["min_dist"],
-                    random_state=tc['teacher_seed'],
+                    random_state=load_this_seed,
                 )
                 np.save(f, Z_tr) 
             
@@ -95,7 +95,7 @@ def precompute_teacher_embeddings(tc, config):
                 Z_tr = get_teacher_embeddings(
                     tc["teacher"], X_tr, 
                     n_components= tc["n_components"] if "n_components" in tc else 2,
-                    random_state=tc['teacher_seed'],
+                    random_state=load_this_seed,
                 )
                 np.save(f, Z_tr) 
 
@@ -122,7 +122,7 @@ def precompute_teacher_embeddings(tc, config):
                     n_components= tc["n_components"] if "n_components" in tc else 2,
                     perplexity=tc["perplexity"],
                     learning_rate=tc["learning_rate"],
-                    random_state=tc['teacher_seed'],
+                    random_state=load_this_seed,
                 )
                 np.save(f, Z_tr) 
 
@@ -137,7 +137,7 @@ def precompute_teacher_embeddings(tc, config):
                     tc["teacher"], X_tr,
                     n_components = tc["n_components"] if "n_components" in tc else 2,
                     n_neighbors = tc["t_n_neighbors"],
-                    random_state = tc['teacher_seed'],
+                    random_state = load_this_seed,
                 )
                 np.save(f, Z_tr) 
 
@@ -155,7 +155,7 @@ def compare_teacher(config):
     tc = config["teacher_config"]
     X_tr, X_te = load_and_split(config['dataset_name'], seed=0, test_size=config["test_size"] if "test_size" in config else 1)
 
-    load_this_seed = tc['teacher_seed'] if config['retrain_teacher'] else 0
+    load_this_seed = 0 # teacher seed
     
     if tc['teacher'] == "umap":
         if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):

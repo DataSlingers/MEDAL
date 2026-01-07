@@ -123,8 +123,7 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
         Z_train = model.fit_transform(X_train)
     elif method == "tsne":
         model = TSNE(**teacher_kwargs_cp)
-        model = model.fit(X_train)
-        Z_train = model.transform(X_train)
+        Z_train = model.fit_transform(X_train)
     elif method == "isomap":
         model = Isomap(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)

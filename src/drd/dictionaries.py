@@ -113,7 +113,7 @@ INIT_CONFIG = {
         "lr": 0.001,
         "lambda_d": 50000,
         "eta_min1": 1e-7, 
-        "hidden_dims": [294, 294, 294, 294, 294, 294, 294, 294, 294],
+        "hidden_dims": [1000] * 4,
         "activation": "SELU",
         "bottleneck_activation": None,
         'max_epochs': 20000, 
