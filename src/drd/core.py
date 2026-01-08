@@ -131,7 +131,6 @@ class DRD(BaseEstimator, TransformerMixin):
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
         self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
-        self.scheduler2 = None
         self.criterion = criterion().to(self.device)
         self.lr_restart = lr_restart
 

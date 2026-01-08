@@ -3,7 +3,7 @@ import numpy as np
 DISTILL_BANDS_DICT = {
     "gene_cancer": [(1e-12, 9e-6)],
     "mnist": [ (1e-12, 9e-6)], #(1e-1, 5), (1e-2, 1e-1), (1e-4, 1e-2), (1e-6,1e-4), (9e-8, 1e-6),
-    "single_cell": [(1e-12, 9e-6)],
+    "darmanis": [(1e-12, 9e-6)],
     "wine": [(1e-12, 9e-8)],
     "hydra": [(1e-12, 9e-6)],
     #[(1e-1, 1e8), (1e-2, 1e-1), (1e-4, 1e-2), (1e-6,1e-4), (9e-8, 1e-6), (1e-12, 9e-8)],
@@ -84,12 +84,12 @@ INIT_CONFIG = {
     "wine": {
         "lr": 0.02, #0.003233466538536306,
         "lambda_d": 20000,
-        "eta_min1": 1e-8, #6.076040435352558e-08,
+        "eta_min1": 1e-8, 
         "hidden_dims": [258, 258, 258, 258],
         "activation": "SELU",
         "bottleneck_activation":  None,
         'max_epochs': 130000, 
-        'T_max_ratio': 0.9,# 0.7,
+        'T_max_ratio': 1,# 0.7,
         "warmup": 0, 
         "batch_size": 100
     },
@@ -107,20 +107,21 @@ INIT_CONFIG = {
         "test_size":0.2,
         "t_patience": 20,
         "use_batchnorm": False,
-        # "t_factor": 0.95, # vanilla AE
     },
-    "single_cell": {
+    "darmanis": {
         "lr": 0.001,
         "lambda_d": 50000,
-        "eta_min1": 5.01855e-05, 
+        "eta_min1": 1e-7, #5.01855e-05, 
         "hidden_dims": [294, 294, 294, 294, 294, 294, 294, 294, 294],
         "activation": "SELU",
         "bottleneck_activation": None,
         'max_epochs': 20000, 
-        'T_max_ratio': 0.6,
+        'T_max_ratio': 1,
         "warmup": 0, 
         "batch_size": 10000,
+        "t_patience":20,
         "t_factor": 0.95,
+        "use_batchnorm": False,
     },
     "hydra":{
         "lr": 0.005, #0.0005 (old lr),# 0.005 (new lr), 

@@ -31,15 +31,15 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         mnist = fetch_openml('mnist_784', version=1)
         X = mnist.data.values[:10000, :]
         if labels: labs = mnist.target.values[:10000]
-        needs_scaling = True
+        X = X.astype('float64') / 255.0
+        needs_scaling = False
     elif dataset_name == "diabetes":
         data = load_diabetes().data
         labs = load_diabetes().target
-    elif dataset_name == "single_cell":
-        data = pd.read_csv('/user/bnc2119/drd/GBM_HVG500_with_metadata.csv', index_col=0)
-        X = data.iloc[:, 29:]
+    elif dataset_name == "darmanis":
+        data = pd.read_csv('/shared/share_mala/irchang/drd/GBM_HVG500_with_metadata.csv', index_col=0)
+        X = data.iloc[:, 29:].to_numpy()
         labs = data['Location']
-        # X = StandardScaler().fit_transform(X)
     elif dataset_name == "hydra":
         data = pd.read_csv('/user/bnc2119/drd/Hydra500_official.csv')
         labs = pd.read_csv('/user/bnc2119/drd/Hydra_labels.csv')['cluster.manuscript'].values
