@@ -3,15 +3,15 @@ from sklearn.metrics import mean_squared_error
 from sklearn.datasets import load_wine, load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.manifold import Isomap, SpectralEmbedding
-from openTSNE import TSNE
+from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
+#from openTSNE import TSNE
 import umap
 from sklearn.decomposition import PCA
 from src.drd import DRD
 import pandas as pd, numpy as np
 from pathlib import Path
 import pickle
-import scanpy as sc
+#import scanpy as sc
 
 def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scaling_input = None):
     X, X_test, labs_train, labs_test = None, None, None, None
@@ -21,10 +21,10 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         if labels: labs = load_wine().target
         needs_scaling = True
     elif dataset_name == "gene_cancer":
-        X = pd.read_csv("~/drd/gene_cancer/data.csv")
+        X = pd.read_csv("/share/ctn/users/bnc2119/drd_data/PANCAN-801x20531/data.csv")
         X.drop(columns=["Unnamed: 0"], inplace=True)
         if labels:
-            labs = pd.read_csv("~/drd/gene_cancer/labels.csv", index_col=0)
+            labs = pd.read_csv("/share/ctn/users/bnc2119/drd_data/PANCAN-801x20531/labels.csv", index_col=0)
         needs_scaling = True
     elif dataset_name == "mnist":
         from sklearn.datasets import fetch_openml
@@ -37,19 +37,19 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         data = load_diabetes().data
         labs = load_diabetes().target
     elif dataset_name == "darmanis":
-        data = pd.read_csv('/shared/share_mala/irchang/drd/GBM_HVG500_with_metadata.csv', index_col=0)
+        data = pd.read_csv('/share/ctn/users/bnc2119/drd_data/GBM_HVG500_with_metadata.csv', index_col=0)
         X = data.iloc[:, 29:].to_numpy()
         labs = data['Location']
     elif dataset_name == "hydra":
         data = pd.read_csv('/user/bnc2119/drd/Hydra500_official.csv')
         labs = pd.read_csv('/user/bnc2119/drd/Hydra_labels.csv')['cluster.manuscript'].values
         X = data.drop('labels', axis=1).to_numpy()
-    elif dataset_name == "pbmc":
+    #elif dataset_name == "pbmc":
         # OG dim (5858, 33694)
-        adata  = sc.read_h5ad('/user/bnc2119/drd/inDrops_afterscale.h5ad') 
-        print("projecting onto first 200 PCs")
-        X = PCA(n_components=200, random_state=seed).fit_transform(adata.layers['scaledata'])
-        labs = adata.obs['CellType']
+    #    adata  = sc.read_h5ad('/user/bnc2119/drd/inDrops_afterscale.h5ad') 
+    #    print("projecting onto first 200 PCs")
+    #    X = PCA(n_components=200, random_state=seed).fit_transform(adata.layers['scaledata'])
+    #    labs = adata.obs['CellType']
     elif dataset_name == "astro":
         # OG dim (3286, 19)
         X = pd.read_csv('/user/bnc2119/drd/data_mean_imputed_with_ids_all.csv', index_col=0).to_numpy()
@@ -123,9 +123,8 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
         model = PCA(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
     elif method == "tsne":
-        model = TSNE(**teacher_kwargs_cp, negative_gradient_method="fft")
-        model = model.fit(X_train)
-        Z_train = model.transform(X_train)
+        model = TSNE(**teacher_kwargs_cp)
+        Z_train = model.fit_transform(X_train)
     elif method == "isomap":
         model = Isomap(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)

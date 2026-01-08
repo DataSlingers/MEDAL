@@ -91,7 +91,7 @@ INIT_CONFIG = {
         'max_epochs': 130000, 
         'T_max_ratio': 1,# 0.7,
         "warmup": 0, 
-        "batch_size": 100
+       "batch_size": 100
     },
     "mnist": { 
         "lr": 1e-3, #1e-4 (vanillaAE), #1e-3 (ROP), # 2e-5, #0.000269 (tsne),	
@@ -111,17 +111,20 @@ INIT_CONFIG = {
     "darmanis": {
         "lr": 0.001,
         "lambda_d": 50000,
-        "eta_min1": 1e-7, #5.01855e-05, 
-        "hidden_dims": [294, 294, 294, 294, 294, 294, 294, 294, 294],
+        "eta_min1": 1e-7, 
+        "hidden_dims": [1000] * 4,
         "activation": "SELU",
         "bottleneck_activation": None,
         'max_epochs': 20000, 
+        'T_max_ratio': 1,
         'T_max_ratio': 1,
         "warmup": 0, 
         "batch_size": 10000,
         "t_patience":20,
         "t_factor": 0.95,
-        "use_batchnorm": False,
+	"use_batchnorm": False,
+	"test_size": 0.2,
+	"t_patience": 20,
     },
     "hydra":{
         "lr": 0.005, #0.0005 (old lr),# 0.005 (new lr), 
@@ -144,7 +147,6 @@ INIT_CONFIG = {
     },
     "pbmc":{
         "lr": 0.001, 
-        "lambda_d": 50000, 
         "eta_min1":3.4443667740771654e-05,
         "eta_min2": 1.069202395077256e-07,
         "hidden_dims": [500, 500, 500, 500, 500],

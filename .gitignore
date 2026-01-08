@@ -6,6 +6,8 @@ __pycache__
 *.txt
 *.parquet
 results/
+run_slurm.sh
+logs/
 
 # Distribution / packaging
 .Python
