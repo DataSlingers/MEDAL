@@ -31,7 +31,8 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         mnist = fetch_openml('mnist_784', version=1)
         X = mnist.data.values[:10000, :]
         if labels: labs = mnist.target.values[:10000]
-        needs_scaling = True
+        X = X.astype('float64') / 255.0
+        needs_scaling = False
     elif dataset_name == "diabetes":
         data = load_diabetes().data
         labs = load_diabetes().target

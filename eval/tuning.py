@@ -419,6 +419,7 @@ def build_teacher_grid(dataset_name, teacher_name):
 
 
 MODE = "bnorm"
+MODE = "size"
 DEVICE = "cuda"
 dataset_name = ["darmanis"]
 teacher_name = "pca" # replace with "umap", "isomap", "spectral", "pca", ...
