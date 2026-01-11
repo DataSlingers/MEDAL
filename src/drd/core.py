@@ -31,10 +31,9 @@ class AutoEncoder(nn.Module):
             encoder_layers.append(bottleneck_activation())
 
         self.encoder = nn.Sequential(*encoder_layers)
-        print("encoder layers:", self.encoder)
         
 
-        # --- DECODER BLOCK (unchanged) ---
+        # --- DECODER BLOCK ---
         decoder_layers = []
         prev_dim = latent_dim
         decoder_layers.append(nn.Linear(prev_dim, hidden_dims[-1]))
@@ -64,7 +63,6 @@ class AutoEncoder(nn.Module):
         if final_activation is not None:
             decoder_layers.append(final_activation())
         
-        print("decoder layers:", decoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
 
         self._init_identity()
@@ -77,17 +75,11 @@ class AutoEncoder(nn.Module):
                     # shallower networks, use this
                     nn.init.normal_(m.weight, mean=0.0, std=eps)
                 else: 
-                    nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='selu')
+                    nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='linear')
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
     def forward(self, x):
-        """
-        If use_sparse_first=True:
-            - x must be a torch sparse tensor (coalesced COO or CSR) on the right device.
-        Else:
-            - x is a dense float tensor as before.
-        """
         z = self.encoder(x) 
         x_recon = self.decoder(z)
         return x_recon, z
@@ -95,7 +87,7 @@ class AutoEncoder(nn.Module):
 class DRD(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU", final_activation = None, criterion=nn.MSELoss,
-                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, T_max=1000, lr_restart = None, device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
+                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, lr_restart = None, device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -115,7 +107,6 @@ class DRD(BaseEstimator, TransformerMixin):
         self.clip_grad_norm = clip_grad_norm
         self.warmup = warmup
         self.eta_min1 = eta_min1
-        self.T_max = T_max
         self.use_batchnorm = use_batchnorm
         self.dropout_rate = dropout_rate
 
@@ -130,10 +121,8 @@ class DRD(BaseEstimator, TransformerMixin):
             use_batchnorm=self.use_batchnorm).to(self.device)
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
-        self.scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
-        self.scheduler2 = None
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
         self.criterion = criterion().to(self.device)
-        self.lr_restart = lr_restart
 
     def fit(self, X, teacher_Z=None, verbose=True,
             phase=None, pretrained_path=None,
@@ -222,8 +211,7 @@ class DRD(BaseEstimator, TransformerMixin):
             distill_history.append(avg_distill)
             recon_history.append(avg_recon)
 
-            # checking if we need to switch scheduler
-            self._update_schedulers(epoch, avg_distill)
+            self.scheduler.step(avg_distill)
             
             # Task: ensure stability and convergence
             if target_bands:
@@ -262,25 +250,6 @@ class DRD(BaseEstimator, TransformerMixin):
 
     def _state_dict_cpu(self):
         return {k: v.detach().cpu() for k, v in self.model.state_dict().items()}
-    
-    def _update_schedulers(self, epoch, avg_distill):
-        """Updates the learning rate schedulers, handling the switch if T_max is passed."""
-        if epoch <= self.T_max: 
-            self.scheduler1.step(avg_distill)
-            # self.scheduler1.step()
-        else:
-            # Switch to scheduler 2 (if T_max has passed)
-            if self.scheduler2 is None:
-                if self.lr_restart is not None:
-                    # Set LR to restart value before starting new schedule
-                    self.opt_joint.param_groups[0]['lr'] = self.lr_restart
-                
-                self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    self.opt_joint, 
-                    T_max=self.epochs - epoch, 
-                    eta_min=self.eta_min2)
-                
-            self.scheduler2.step()
     
     def _check_stability_and_checkpoint(self, epoch, avg_distill, avg_recon, 
                                         distill_history, recon_history,

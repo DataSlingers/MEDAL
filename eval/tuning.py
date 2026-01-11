@@ -367,14 +367,14 @@ def architecture_analysis_grid(dataset, mode):
              [800, 400, 200, 2000]])
     elif mode == "bnorm":
         base_lr = BASE_INIT_CONFIG["lr"]
-        BASE_INIT_CONFIG["lr"] = tune.choice([base_lr *0.1, base_lr * 0.5,base_lr *  1, base_lr * 5, base_lr *10])
+        BASE_INIT_CONFIG["lr"] = tune.grid_search([base_lr *0.1, base_lr * 0.5,base_lr *  1, base_lr * 5, base_lr *10])
         BASE_INIT_CONFIG["use_batchnorm"] = tune.choice([True, False])
         if dataset == "mnist":
-            BASE_INIT_CONFIG["hidden_dims"] = tune.choice([[2378] * 2, [1000] * 4, [734] * 8, [477] * 16])
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[2378] * 2, [1000] * 4, [734] * 8, [477] * 16])
         elif dataset == "gene_cancer":
-            BASE_INIT_CONFIG["hidden_dims"] = tune.choice([[5734] * 2, [1000] * 4, [1563] * 8, [743] * 16])
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[5734] * 2, [1000] * 4, [1563] * 8, [743] * 16])
         elif dataset == "darmanis":
-            BASE_INIT_CONFIG["hidden_dims"] = tune.choice([[1809] * 2, [1000] * 4, [682] * 8, [467] * 16])
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[1809] * 2, [1000] * 4, [682] * 8, [467] * 16])
     else:
         raise ValueError(f"Unknown mode: {mode}")
     
@@ -420,7 +420,7 @@ def build_teacher_grid(dataset_name, teacher_name):
 
 MODE = "bnorm"
 DEVICE = "cuda"
-dataset_name = ["gene_cancer"]
+dataset_name = ["darmanis"]
 teacher_name = "pca" # replace with "umap", "isomap", "spectral", "pca", ...
 PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data" #"/shared/share_mala/irchang/drd"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
@@ -449,7 +449,7 @@ for data_name in dataset_name:
     analysis = tune.run(
         compare_teacher,
         name="drd_asynchyperband_distill_optimization",
-        num_samples=100, 
+        num_samples=10, 
         resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
         config= config,
         verbose=1,
