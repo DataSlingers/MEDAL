@@ -41,7 +41,7 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         X = data.iloc[:, 29:].to_numpy()
         labs = data['Location']
     elif dataset_name == "hydra":
-        data = pd.read_csv('/user/bnc2119/drd/Hydra500_official.csv')
+        data = pd.read_csv('/shared/share_mala/irchang/drd/Hydra500_official.csv')
         labs = pd.read_csv('/user/bnc2119/drd/Hydra_labels.csv')['cluster.manuscript'].values
         X = data.drop('labels', axis=1).to_numpy()
     #elif dataset_name == "pbmc":
