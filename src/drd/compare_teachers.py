@@ -5,11 +5,9 @@ import os
 import numpy as np
 from pathlib import Path
 import torch.nn as nn
-from src.drd.dictionaries import DISTILL_BANDS_DICT, TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS
+from src.drd.dictionaries import DISTILL_BANDS_DICT, TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
 import itertools
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
-
-PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data"
 
 def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
     """
@@ -278,9 +276,9 @@ def compare_teacher(config):
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "gene_cancer"
-    variant = "linearAE"
-    teachers = ["pca"]
+    dataset_name = "mnist"
+    variant = "medal"
+    teachers = ["umap"]
 
     config = get_dataset_config(dataset_name, variant, update_kws={
         "verbose": False,
@@ -298,7 +296,7 @@ if __name__ == "__main__":
     # pretrain_ckpt_path = pretrain_task(config, num_pretrain_epochs=1000)
     # print(f"Pretraining completed. Checkpoint saved at {pretrain_ckpt_path}")
 
-    teacher_grid = build_teacher_grid(dataset_name, teachers, seeds=range(1), mode = "rank_sweep")
+    teacher_grid = build_teacher_grid(dataset_name, teachers, seeds=range(5), mode = "teacher_sweep") # {"rank_sweep", "teacher_sweep"}
     print(f"Running {variant} on {dataset_name} with {len(teacher_grid)} teacher configs.")
 
     for tc in teacher_grid:

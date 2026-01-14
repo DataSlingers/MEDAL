@@ -4,7 +4,6 @@ from sklearn.datasets import load_wine, load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
-#from openTSNE import TSNE
 import umap
 from sklearn.decomposition import PCA
 from src.drd import DRD

@@ -13,6 +13,9 @@ DISTILL_BANDS_DICT = {
     "macaque": [(1e-12, 9e-6)],
 }
 
+# PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data"
+PATH_PREFIX = "/shared/share_mala/irchang/drd"
+
 TEACHER_SWEEP_SPECS = {
     "mnist": {
         "umap": {
