@@ -3,7 +3,8 @@ from sklearn.metrics import mean_squared_error
 from sklearn.datasets import load_wine, load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
+from sklearn.manifold import Isomap, SpectralEmbedding
+from openTSNE import TSNE
 import umap
 from sklearn.decomposition import PCA
 from src.drd import DRD
@@ -104,7 +105,6 @@ def compute_losses(model, X, teacher_z=None, device=None):
         return recon_mse, distill_mse
     return recon_mse, None
 
-
 def get_teacher_embeddings(method, X_train, **teacher_kwargs):
     """
     method: str, e.g. "umap", "pca", "mlp"
@@ -122,7 +122,7 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
         model = PCA(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
     elif method == "tsne":
-        model = TSNE(**teacher_kwargs_cp)
+        model = TSNE(**teacher_kwargs_cp, negative_gradient_method="fft")
         Z_train = model.fit_transform(X_train)
     elif method == "isomap":
         model = Isomap(**teacher_kwargs_cp)
@@ -130,10 +130,6 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
     elif method == "spectral":
         model = SpectralEmbedding(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
-    # elif method == "phate":
-    #     model = phate.PHATE(**teacher_kwargs_cp)
-    #     Z_train = model.fit_transform(X_train)
-    #     Z_test  = model.transform(X_test) if X_test is not None else None
     else:
         raise ValueError(f"Unknown teacher method {method}")
     
