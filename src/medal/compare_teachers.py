@@ -5,8 +5,8 @@ import os
 import numpy as np
 from pathlib import Path
 import torch.nn as nn
-from src.medal import MEDAL
-from src.medal.dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
+from .core import MEDAL
+from .dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
 import itertools
 
 def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
