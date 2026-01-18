@@ -1,9 +1,19 @@
-numpy<2.3
+# Core
+numpy>=1.26,<2.0
+pandas>=2.1,<2.3
+scikit-learn>=1.4,<1.5
+tqdm>=4.67,<5
+pyyaml>=6,<7
+
+# Manifold / embedding
+umap-learn>=0.5.7,<0.6
 openTSNE==1.0.4
-pandas==2.3.3
-ray==2.47.1
-scikit_learn==1.4.2
-torch==2.6.0+cu118
-tqdm==4.67.1
-umap_learn==0.5.7
-utils==1.0.2
+
+# Tuning / experiments
+ray[tune]==2.47.1
+tensorboardX>=2.6,<3
+
+# PyTorch (CPU wheels from PyPI)
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0

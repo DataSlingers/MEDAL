@@ -14,7 +14,6 @@ DISTILL_BANDS_DICT = {
 }
 
 PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data"
-# PATH_PREFIX = "/shared/share_mala/irchang/drd"
 
 TEACHER_SWEEP_SPECS = {
     "mnist": {
