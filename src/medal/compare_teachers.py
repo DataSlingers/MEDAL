@@ -1,6 +1,6 @@
 # run teacher evaluation as a grid search on ray
 from ray import tune
-from utils.eval_utils import load_and_split, get_teacher_embeddings
+from medal.eval_utils import load_and_split, get_teacher_embeddings
 import os
 import numpy as np
 from pathlib import Path
