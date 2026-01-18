@@ -1,8 +1,7 @@
 from ray import tune
 from ray.tune.schedulers import PopulationBasedTraining, AsyncHyperBandScheduler
 from ray.tune import CLIReporter
-from src.medal.dictionaries import INIT_CONFIG
-from src.medal.compare_teachers import precompute_teacher_embeddings, compare_teacher
+from medal import INIT_CONFIG, precompute_teacher_embeddings, compare_teacher
 import torch, torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
