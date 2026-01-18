@@ -23,6 +23,7 @@ dependencies:
   - pytorch-cuda=11.8
   - torchvision
   - torchaudio
+  - opentsne
 
   # Ray is fine via pip (conda builds sometimes lag)
   - pip:
@@ -30,4 +31,3 @@ dependencies:
       - tensorboardx
       - pip-tools
       - pipreqs
-      - umap-learn==0.5.7
