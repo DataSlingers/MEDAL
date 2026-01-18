@@ -71,12 +71,11 @@ INIT_CONFIG = {
     "gene_cancer": {
         "lr": 1e-3, #tune.grid_search([1e-5, 1e-4, 5e-4, 5e-5]), #1e-3,  
         "lambda_d": 10000,#30000, # 1500
-        "eta_min1": 1e-11, #1e-9-
+        "eta_min": 1e-11, #1e-9-
         "hidden_dims":[1000, 1000, 1000, 1000],
         "activation": "SELU",
         "bottleneck_activation": None,
         "max_epochs": 7000,
-        "T_max_ratio": 1, #0.5,
         "warmup": 0, 
         "test_size": 0.2,
         "batch_size": 100,
@@ -87,24 +86,22 @@ INIT_CONFIG = {
     "wine": {
         "lr": 0.02, #0.003233466538536306,
         "lambda_d": 20000,
-        "eta_min1": 1e-8, 
+        "eta_min": 1e-8, 
         "hidden_dims": [258, 258, 258, 258],
         "activation": "SELU",
         "bottleneck_activation":  None,
         'max_epochs': 130000, 
-        'T_max_ratio': 1,# 0.7,
         "warmup": 0, 
-       "batch_size": 100
+        "batch_size": 100
     },
     "mnist": { 
         "lr": 1e-3, #1e-4 (vanillaAE), #1e-3 (ROP), # 2e-5, #0.000269 (tsne),	
         "lambda_d": 10000, # 3000
-        "eta_min1": 1e-7, #1e-5, # 7.256237e-10, 1e-10(spectral)
+        "eta_min": 1e-7, #1e-5, # 7.256237e-10, 1e-10(spectral)
         "hidden_dims": [1000, 1000, 1000, 1000, 1000], 
         "activation": "SELU",
         "bottleneck_activation": None,
         "max_epochs":5000, 
-        "T_max_ratio":1,
         "batch_size": 256,
         "warmup": 0, 
         "test_size":0.2,
@@ -114,20 +111,18 @@ INIT_CONFIG = {
     "darmanis": {
         "lr": 0.001,
         "lambda_d": 50000,
-        "eta_min1": 1e-7, 
+        "eta_min": 1e-7, 
         "hidden_dims": [1000] * 4,
         "activation": "SELU",
         "bottleneck_activation": None,
         'max_epochs': 20000, 
-        'T_max_ratio': 1,
-        'T_max_ratio': 1,
         "warmup": 0, 
         "batch_size": 10000,
         "t_patience":20,
         "t_factor": 0.95,
-	"use_batchnorm": False,
-	"test_size": 0.2,
-	"t_patience": 20,
+        "use_batchnorm": False,
+        "test_size": 0.2,
+        "t_patience": 20,
     },
     "hydra":{
         "lr": 0.005, #0.0005 (old lr),# 0.005 (new lr), 
@@ -135,12 +130,11 @@ INIT_CONFIG = {
         # "lambda_d": 0,
         # "eta_min1":  9.10708e-06, 
         # "eta_min2": 8.51602e-10, 
-        "eta_min1":  1e-07, 
+        "eta_min":  1e-07, 
         "hidden_dims": [309, 1792, 1792, 1792],
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 20000,
-        'T_max_ratio': 1,  #0.8,
         "warmup": 1500, 
         "batch_size": 51200,
         "test_size": 0.2,
@@ -148,27 +142,14 @@ INIT_CONFIG = {
         "t_factor": 0.95,
         "use_batchnorm": True
     },
-    "pbmc":{
-        "lr": 0.001, 
-        "eta_min1":3.4443667740771654e-05,
-        "eta_min2": 1.069202395077256e-07,
-        "hidden_dims": [500, 500, 500, 500, 500],
-        "activation": "SELU", 
-        "bottleneck_activation": None,
-        'max_epochs': 20000,
-        'T_max_ratio': 0.7,
-        "warmup": 3000, 
-        "batch_size": 10000,
-    },
     "astro":{
         "lr": 0.0005, #0.00139911,
         "lambda_d": 10000,
-        "eta_min1": 1e-07, #3.55767e-07,
+        "eta_min": 1e-07, #3.55767e-07,
         "hidden_dims": [700] * 15,
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 60000,
-        'T_max_ratio': 1, #0.75,
         "warmup": 0, 
         "batch_size": 25600,
         "test_size": 0.2,
@@ -179,12 +160,11 @@ INIT_CONFIG = {
     "cortical":{
         "lr": 0.00268681,
         "lambda_d": 50000, #30000,
-        "eta_min1": 1e-7,
+        "eta_min": 1e-7,
         "hidden_dims": [309, 1792, 1792, 1792],
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 6000,
-        'T_max_ratio': 1, #0.7
         "warmup": 100, 
         "batch_size": 50000,
         "test_size": 0.2,
@@ -195,12 +175,11 @@ INIT_CONFIG = {
     "macaque":{       
         "lr":0.000341178, 
         "lambda_d": 10000, # 50000, 200000
-        "eta_min1": 1e-7, #6.24882e-06 (tsne), 1e-7 (umap)
+        "eta_min": 1e-7, #6.24882e-06 (tsne), 1e-7 (umap)
         "hidden_dims": [700] * 15,
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 25000,
-        'T_max_ratio': 1, #0.7, 0.8
         "warmup": 0, 
         "batch_size": 1024,
         "test_size":0.2,

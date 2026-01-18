@@ -9,11 +9,9 @@ import pprint
 import torch
 import scanpy as sc
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-from utils.eval_utils import load_and_split, get_teacher_embeddings, make_student, eval_student, eval_pca_baseline
+from medal.eval_utils import load_and_split, get_teacher_embeddings, make_student, eval_student, eval_pca_baseline
 
 DISTILL_BANDS_DICT = {
     "gene_cancer": [(1e-12, 9e-9)],

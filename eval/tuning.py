@@ -6,7 +6,6 @@ from src.medal.compare_teachers import precompute_teacher_embeddings, compare_te
 import torch, torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from ray import train
 from pathlib import Path
 from copy import deepcopy
 
@@ -20,7 +19,7 @@ def architecture_analysis_grid(dataset, mode):
         "retrain_teacher": False,
         "save_dir": None,
         "distill_bands": None,
-        "eta_min1": 1e-11, # let the network distill as much as possible
+        "eta_min": 1e-11, # let the network distill as much as possible
         "use_batchnorm": False
     })
 
