@@ -1,2 +1,2 @@
-from src.medal.core import *
-from src.medal.eval_utils import *
+from . import core
+# from src.medal.eval_utils import *
