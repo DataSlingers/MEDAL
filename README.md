@@ -1,2 +1,3 @@
-# drd
-Dimension Reduction Distillation
+MEDAL: Manifold Distillation via Constrained Autoencoders
+
+
