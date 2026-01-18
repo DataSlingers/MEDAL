@@ -31,3 +31,4 @@ MANIFEST
 tmp/
 *.npy
 */.ipynb_checkpoints/*
+core.32084

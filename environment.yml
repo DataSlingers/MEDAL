@@ -15,19 +15,19 @@ dependencies:
   - tqdm
   - pyyaml
   - ipykernel
-  - jupyterlab
   - umap-learn
 
   # PyTorch + CUDA (no pip wheels)
   - pytorch
-  - pytorch-cuda=11.8
   - torchvision
   - torchaudio
   - opentsne
+  - pyarrow
+  - cmake
 
   # Ray is fine via pip (conda builds sometimes lag)
   - pip:
-      - ray==2.47.1
+      - ray[tune]
       - tensorboardx
       - pip-tools
       - pipreqs
