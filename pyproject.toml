@@ -1,7 +1,7 @@
 [project]
-name = "drd"
+name = "medal"
 version = "0.1.0"
-description = "Manifold Distillation for Dimension Reduction"
+description = "Manifold Embedding Distillation via Autoencoder Learning"
 authors = [{name = "Irene Chang"}]
 readme = "README.md"
 # requires-python = ">=3.9"
