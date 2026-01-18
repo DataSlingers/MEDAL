@@ -1,5 +1,7 @@
-name: drd
+name: medal
 channels:
+  - pytorch
+  - nvidia 
   - conda-forge
 dependencies:
   - _libgcc_mutex=0.1
@@ -123,7 +125,10 @@ dependencies:
   - wheel=0.45.1
   - zeromq=4.3.5
   - zlib=1.3.1
-  - zstd=1.5.7
+  - pytorch
+  - pytorch-cuda=11.8
+  - torchvision
+  - torchaudio
   - pip:
       - aiosignal==1.4.0
       - attrs==25.4.0
@@ -164,17 +169,6 @@ dependencies:
       - networkx==3.4.2
       - numba==0.63.1
       - numpy==1.26.4
-      - nvidia-cublas-cu11==11.11.3.6
-      - nvidia-cuda-cupti-cu11==11.8.87
-      - nvidia-cuda-nvrtc-cu11==11.8.89
-      - nvidia-cuda-runtime-cu11==11.8.89
-      - nvidia-cudnn-cu11==9.1.0.70
-      - nvidia-cufft-cu11==10.9.0.58
-      - nvidia-curand-cu11==10.3.0.86
-      - nvidia-cusolver-cu11==11.4.1.48
-      - nvidia-cusparse-cu11==11.7.5.86
-      - nvidia-nccl-cu11==2.21.5
-      - nvidia-nvtx-cu11==11.8.86
       - pandas==2.1.4
       - pandocfilters==1.5.1
       - pillow==12.1.0
@@ -199,9 +193,6 @@ dependencies:
       - threadpoolctl==3.6.0
       - tinycss2==1.4.0
       - tomli==2.4.0
-      - torch==2.6.0+cu118
-      - torchaudio==2.6.0+cu118
-      - torchvision==0.21.0+cu118
       - tqdm==4.67.1
       - triton==3.2.0
       - tzdata==2025.3
@@ -209,4 +200,4 @@ dependencies:
       - urllib3==2.6.2
       - webencodings==0.5.1
       - yarg==0.1.9
-prefix: /home/bnc2119/.conda/envs/drd
+prefix: /home/bnc2119/.conda/envs/medal
