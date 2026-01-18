@@ -87,7 +87,7 @@ class AutoEncoder(nn.Module):
 class MEDAL(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU", final_activation = None, criterion=nn.MSELoss,
-                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, lr_restart = None, device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
+                 lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min = 1e-16, device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
                  **kwargs):
         """
         DRD (Distillation of Representation Distillation) model for dimensionality reduction.
@@ -106,7 +106,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.clip_grad_norm = clip_grad_norm
         self.warmup = warmup
-        self.eta_min1 = eta_min1
+        self.eta_min = eta_min
         self.use_batchnorm = use_batchnorm
         self.dropout_rate = dropout_rate
 
@@ -121,7 +121,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
             use_batchnorm=self.use_batchnorm).to(self.device)
 
         self.opt_joint = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=adamw_weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min1, eps=1e-15)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt_joint, "min", factor = factor, threshold=1e-4, patience=patience, min_lr = self.eta_min, eps=1e-15)
         self.criterion = criterion().to(self.device)
 
     def fit(self, X, teacher_Z=None, verbose=True,

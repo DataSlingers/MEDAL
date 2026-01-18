@@ -43,12 +43,6 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         data = pd.read_csv('/shared/share_mala/irchang/drd/Hydra500_official.csv')
         labs = pd.read_csv('/user/bnc2119/drd/Hydra_labels.csv')['cluster.manuscript'].values
         X = data.drop('labels', axis=1).to_numpy()
-    #elif dataset_name == "pbmc":
-        # OG dim (5858, 33694)
-    #    adata  = sc.read_h5ad('/user/bnc2119/drd/inDrops_afterscale.h5ad') 
-    #    print("projecting onto first 200 PCs")
-    #    X = PCA(n_components=200, random_state=seed).fit_transform(adata.layers['scaledata'])
-    #    labs = adata.obs['CellType']
     elif dataset_name == "astro":
         # OG dim (3286, 19)
         X = pd.read_csv('/user/bnc2119/drd/data_mean_imputed_with_ids_all.csv', index_col=0).to_numpy()

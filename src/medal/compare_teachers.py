@@ -8,7 +8,6 @@ import torch.nn as nn
 from src.medal import MEDAL
 from src.medal.dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
 import itertools
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
 def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
     """
@@ -180,23 +179,24 @@ def compare_teacher(config):
     
     # Prepare student configuration
     student_kwargs = {
-        "epochs": config['max_epochs'], 
-        "batch_size": config['batch_size'], 
-        "warmup": config.get('warmup', 0),  # Use get for optional params
-        "lr": config['lr'], 
-        "eta_min1": config["eta_min1"], 
-        "T_max": int(config['max_epochs'] * config["T_max_ratio"]) if "T_max_ratio" in config else config["T_max"], 
-        "lambda_d": config['lambda_d'],
+        "hidden_dims": config["hidden_dims"],
         "activation": config['activation'],
         "bottleneck_activation": config["bottleneck_activation"],
         "final_activation": config["final_activation"] if "final_activation" in config else None,
-        "hidden_dims": config["hidden_dims"],
-        "adamw_weight_decay": config['adamw_weight_decay'] if "adamw_weight_decay" in config else 1e-5,
-        "factor": config['t_factor'] if "t_factor" in config else 0.9,
-        "patience": config["t_patience"],
+        "lambda_d": config['lambda_d'],
+        "lr": config['lr'], 
+        "epochs": config['max_epochs'], 
+        "batch_size": config['batch_size'], 
+        "device": config["device"] if "device" in config else "cuda",
+        "clip_grad_norm": config['clip_grad_norm'] if "clip_grad_norm" in config else 1.0,
+        "warmup": config["warmup"] if "warmup" in config else 0,
+        "eta_min": config["eta_min"] if "eta_min" in config else 0,
         "use_batchnorm": config['use_batchnorm'] if "use_batchnorm" in config else False,
         "dropout_rate": config['dropout_rate'] if "dropout_rate" in config else 0.1,
-        "criterion": config['criterion'] if "criterion" in config else nn.MSELoss
+        "adamw_weight_decay": config['adamw_weight_decay'] if "adamw_weight_decay" in config else 1e-5,
+        "factor": config['t_factor'] if "t_factor" in config else 0.9,
+        "patience": config["t_patience"] if "t_patience" in config else 20,
+        "criterion": config['criterion'] if "criterion" in config else nn.MSELoss, 
     }
     
     # Create student model
@@ -207,7 +207,6 @@ def compare_teacher(config):
     student_config = dict(
         input_dim=input_dim,
         latent_dim=tc["n_components"] if "n_components" in tc else 2,
-        device="cuda",
         **student_kwargs
     )
 
