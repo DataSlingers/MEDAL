@@ -7,7 +7,6 @@ from sklearn.manifold import Isomap, SpectralEmbedding
 from openTSNE import TSNE
 import umap
 from sklearn.decomposition import PCA
-from src.drd import DRD
 import pandas as pd, numpy as np
 from pathlib import Path
 import pickle
@@ -144,32 +143,11 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
         print(f"Teacher model saved to {model_path}")
     return Z_train
 
-def make_student(method, input_dim=None, hidden_dims=None, latent_dim = 2,
-                 **student_kwargs):
-    if method == "drd":
-        if input_dim is None or hidden_dims is None:
-            raise ValueError("For DRD, input_dim and hidden_dims must be specified.")
-        config = dict(
-        input_dim=input_dim,
-        hidden_dims=hidden_dims,
-        latent_dim=latent_dim,
-        **student_kwargs
-        )
-        return DRD(**config)
-    elif method == "pca":
-        return PCA(n_components=student_kwargs.get("n_components", 2), random_state = student_kwargs.get("random_state", 0))
-    else:
-        raise ValueError(f"Unknown student method {method}")
 
 def eval_student(student, X, Z):
     rmse, dmse = compute_losses(model=student.model,
                                 X=X, teacher_z=Z)
     return {"recon_mse": rmse, "distill_mse": dmse}
-
-def eval_pca_baseline(pca_model, X_tr, X_te):
-    pca_model.fit(X_tr)
-    return {"recon_test_mse": mean_squared_error(X_te, pca_model.inverse_transform(pca_model.transform(X_te))),
-            "recon_train_mse": mean_squared_error(X_tr, pca_model.inverse_transform(pca_model.transform(X_tr)))}
 
 def process_single_cell_data(data_fp, labels_fp = None):
     sep_regex = r'\s(?=(?:[^"]*"[^"]*")*[^"]*$)'
@@ -214,6 +192,3 @@ def process_single_cell_data(data_fp, labels_fp = None):
         return df, meta
 
     return df
-
-def extract_scdeed_labels(df):
-    pass

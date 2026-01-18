@@ -1,11 +1,12 @@
 # run teacher evaluation as a grid search on ray
 from ray import tune
-from utils.eval_utils import make_student, load_and_split, get_teacher_embeddings
+from utils.eval_utils import load_and_split, get_teacher_embeddings
 import os
 import numpy as np
 from pathlib import Path
 import torch.nn as nn
-from src.drd.dictionaries import DISTILL_BANDS_DICT, TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
+from src.medal import MEDAL
+from src.medal.dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
 import itertools
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
@@ -199,13 +200,18 @@ def compare_teacher(config):
     }
     
     # Create student model
-    student = make_student(
-        method="drd",
-        input_dim=X_tr.shape[1],
-        latent_dim = tc["n_components"] if "n_components" in tc else 2,
+    input_dim = X_tr.shape[1]
+    if input_dim is None or student_kwargs.get("hidden_dims", None) is None:
+        raise ValueError("For SMEDAL, input_dim and hidden_dims must be specified.")
+
+    student_config = dict(
+        input_dim=input_dim,
+        latent_dim=tc["n_components"] if "n_components" in tc else 2,
         device="cuda",
-        **student_kwargs,
+        **student_kwargs
     )
+
+    student = MEDAL(**student_config)
     
     teacher = tc['teacher']
 
@@ -231,7 +237,8 @@ def compare_teacher(config):
                 phase="finetune", pretrained_path=config['pretrained_path'],
                 target_bands=distill_bands, 
                 stability_window=20, 
-                epsilon_distill=1e-7, epsilon_recon=1e-3, # 1e-2 for macaque, others 1e-3 
+                epsilon_distill=1e-7, 
+                epsilon_recon=1e-3, # 1e-2 for macaque, others 1e-3 
                 patience=50, # unit = epoch
                 return_on_stable=True,
                 # checkpointing

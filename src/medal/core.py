@@ -84,7 +84,7 @@ class AutoEncoder(nn.Module):
         x_recon = self.decoder(z)
         return x_recon, z
 
-class DRD(BaseEstimator, TransformerMixin):
+class MEDAL(BaseEstimator, TransformerMixin):
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64), activation="ReLU",   
                  bottleneck_activation = "ReLU", final_activation = None, criterion=nn.MSELoss,
                  lambda_d = 10, lr=1e-3, epochs=100, batch_size=32, eta_min1 = 1e-16, lr_restart = None, device=None, clip_grad_norm=1.0, warmup = 0, adamw_weight_decay = 1e-5, patience = 20, factor = 0.9, use_batchnorm=False, dropout_rate=0.1,
