@@ -16,4 +16,4 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 conda run -n embedr python -c "import sys; print('PY:', sys.executable); import EMBEDR; print('EMBEDR:', EMBEDR.__file__)"
 cd "$SLURM_SUBMIT_DIR"
-conda run -n embedr python EMBEDR/examples/embedr_results_umap.py
+conda run -n embedr python EMBEDR/examples/embedr_results_tsne.py
