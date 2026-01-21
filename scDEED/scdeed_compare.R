@@ -1,0 +1,273 @@
+## ============================================================
+## scDEED runner (dataset-specific grids + separate output dirs)
+## - Saves tSNE outputs to: results_scdeed_tsne/
+## - Saves UMAP outputs to: results_scdeed_umap/
+## - Uses dataset-specific hyperparameter grids (from your table)
+## - More robust package install: uses pak if available; otherwise stops
+##   with a clear message if Seurat (and deps) cannot be installed here.
+## ============================================================
+
+## --------------------------
+## 0) CRAN mirror + user lib
+## --------------------------
+if (is.null(getOption("repos")) ||
+    is.na(getOption("repos")[["CRAN"]]) ||
+    getOption("repos")[["CRAN"]] %in% c("", "@CRAN@")) {
+  options(repos = c(CRAN = "https://cloud.r-project.org"))
+}
+
+user_lib <- Sys.getenv("R_LIBS_USER")
+if (!nzchar(user_lib)) {
+  user_lib <- file.path(Sys.getenv("HOME"), "R",
+                        paste0(R.version$platform, "-library"),
+                        paste(R.version$major, R.version$minor, sep = "."))
+}
+dir.create(user_lib, recursive = TRUE, showWarnings = FALSE)
+.libPaths(c(user_lib, .libPaths()))
+
+## --------------------------
+## 1) Packages
+## --------------------------
+pkgs <- c(
+  "Seurat", "SeuratObject",
+  "gridExtra", "dplyr", "patchwork", "VGAM",
+  "gplots", "ggplot2", "pracma", "resample", "foreach",
+  "distances", "doParallel"
+)
+
+## NOTE on your install error:
+## On Longleaf/RHEL, Seurat often fails to install inside a batch job because
+## system libs (hdf5, gdal/geos, etc.) and compilation toolchain may be missing
+## from the compute node environment. So we:
+##   - try to install via pak (more reliable dependency handling),
+##   - then STOP if Seurat still isn’t available (instead of silently continuing).
+
+install_missing_pkgs <- function(pkgs, lib = user_lib, ncpu = max(1, parallel::detectCores() - 1)) {
+  missing <- setdiff(pkgs, rownames(installed.packages(lib.loc = .libPaths())))
+  if (!length(missing)) return(invisible(TRUE))
+  
+  message("Missing packages: ", paste(missing, collapse = ", "))
+  
+  ## Prefer pak if possible
+  if (!requireNamespace("pak", quietly = TRUE)) {
+    message("Installing 'pak' first (to ", lib, ") ...")
+    install.packages("pak", lib = lib, dependencies = TRUE, Ncpus = ncpu)
+  }
+  
+  if (requireNamespace("pak", quietly = TRUE)) {
+    message("Installing missing packages with pak ...")
+    ## pak ignores lib.loc; set lib path via .libPaths already
+    pak::pkg_install(missing, upgrade = FALSE)
+  } else {
+    stop(
+      "Could not install/use 'pak'.\n",
+      "On Longleaf, Seurat may require system libraries and a compiler toolchain.\n",
+      "Install missing packages interactively (login node) or via a prepared environment, then re-run the job."
+    )
+  }
+  
+  invisible(TRUE)
+}
+
+install_missing_pkgs(pkgs)
+
+## Load
+for (p in pkgs) {
+  if (!requireNamespace(p, quietly = TRUE)) {
+    stop(
+      "Package '", p, "' is still missing after install attempt.\n",
+      "Most important: Seurat must be installed successfully before running scDEED.\n",
+      "Try installing on a login node (interactive) and ensure system deps are available."
+    )
+  }
+  library(p, character.only = TRUE)
+}
+
+## Parallel
+doParallel::registerDoParallel(cores = 30)
+
+## --------------------------
+## 2) Source scDEED (patched)
+## --------------------------
+## This expects that you already replaced slot->layer in scDEED/R/scDEED.R
+source("scDEED/R/scDEED.R")
+
+## --------------------------
+## 3) Dataset-specific grids (from your table)
+## --------------------------
+mnist_umap_n <- c(5, 6, 9, 13, 18, 25, 35, 49, 69, 96, 134, 186, 258, 359, 499)
+mnist_tsne_p <- c(5, 11, 27, 62, 146, 341, 793, 1846, 4297)
+
+hydra_umap_n <- c(5, 9, 18, 36, 71, 139, 271, 528, 1027, 2000)
+hydra_tsne_p <- c(5, 10, 23, 49, 107, 232, 499, 1077, 2320, 4999)
+
+tasic_umap_n <- hydra_umap_n
+tasic_tsne_p <- c(5, 10, 24, 53, 116, 256, 564, 1241, 2729, 6000)
+
+astro_umap_n <- mnist_umap_n
+astro_tsne_p <- c(3, 4, 6, 8, 12, 18, 26, 55, 80, 115, 167, 240, 346, 499)
+
+## min_dist is 0.1 in your table (MNIST + Hydra; and “same as” implies same)
+default_min_dist <- 0.1
+
+infer_dataset_key <- function(name_or_path) {
+  x <- tolower(basename(name_or_path))
+  if (grepl("mnist", x)) return("mnist")
+  if (grepl("hydra", x)) return("hydra")
+  if (grepl("tasic", x)) return("tasic")
+  if (grepl("astro", x)) return("astro")
+  return("unknown")
+}
+
+get_param_grid <- function(key) {
+  if (key == "mnist") {
+    return(list(
+      umap_n_neighbors = mnist_umap_n,
+      umap_min_dist    = default_min_dist,
+      tsne_perplexity  = mnist_tsne_p
+    ))
+  }
+  if (key == "hydra") {
+    return(list(
+      umap_n_neighbors = hydra_umap_n,
+      umap_min_dist    = default_min_dist,
+      tsne_perplexity  = hydra_tsne_p
+    ))
+  }
+  if (key == "tasic") {
+    return(list(
+      umap_n_neighbors = tasic_umap_n,
+      umap_min_dist    = default_min_dist,
+      tsne_perplexity  = tasic_tsne_p
+    ))
+  }
+  if (key == "astro") {
+    return(list(
+      umap_n_neighbors = astro_umap_n,
+      umap_min_dist    = default_min_dist,
+      tsne_perplexity  = astro_tsne_p
+    ))
+  }
+  ## fallback (your original defaults)
+  return(list(
+    umap_n_neighbors = seq(from = 5, to = 200, by = 25),
+    umap_min_dist    = default_min_dist,
+    tsne_perplexity  = seq(from = 10, to = 410, by = 20)
+  ))
+}
+
+## --------------------------
+## 4) Runner
+## --------------------------
+run_scdeed_all_data <- function(path, name) {
+  message("==== Dataset: ", name, " ====")
+  
+  ## Read
+  df <- read.csv(path, check.names = FALSE)
+  
+  ## Drop PC* and metadata columns
+  drop_cols <- grepl("^PC", names(df)) | names(df) %in% c("split", "labels")
+  df <- df[, !drop_cols, drop = FALSE]
+  
+  ## Drop any columns with empty/NA names (prevents Seurat/Matrix errors)
+  bad_names <- is.na(names(df)) | trimws(names(df)) == ""
+  if (any(bad_names)) {
+    df <- df[, !bad_names, drop = FALSE]
+  }
+  
+  ## Coerce to numeric & finite
+  df[] <- lapply(df, function(x) suppressWarnings(as.numeric(x)))
+  mat_cells_features <- as.matrix(df)          # cells x features
+  mat_cells_features[!is.finite(mat_cells_features)] <- 0
+  
+  ## Seurat expects features x cells → transpose
+  mat <- t(mat_cells_features)                 # features x cells
+  
+  ## Ensure feature names exist + unique (avoid LogMap / empty rowname issues)
+  feat <- rownames(mat)
+  feat[is.na(feat) | trimws(feat) == ""] <- paste0("feature_", which(is.na(feat) | trimws(feat) == ""))
+  feat <- make.unique(feat)
+  rownames(mat) <- feat
+  
+  ## Build Seurat object and place your already-scaled data in scale.data (no extra norm/scale)
+  data <- CreateSeuratObject(counts = mat, assay = "RNA")
+  DefaultAssay(data) <- "RNA"
+  data <- SetAssayData(data, assay = "RNA", layer = "scale.data", new.data = mat)
+  
+  ## Use ALL features as variable features (so PCA uses all columns you provide)
+  Seurat::VariableFeatures(data) <- rownames(mat)
+  
+  ## Default scDEED example-style K
+  K <- 8
+  
+  ## Run PCA (creates the default 'pca' reduction that scDEED expects)
+  data <- Seurat::RunPCA(
+    data,
+    npcs     = K,
+    features = Seurat::VariableFeatures(data),
+    verbose  = FALSE
+  )
+  
+  ## Dataset-specific grids
+  key   <- infer_dataset_key(name)
+  grid  <- get_param_grid(key)
+  
+  ## Output dirs
+  out_tsne <- "results_scdeed_tsne"
+  out_umap <- "results_scdeed_umap"
+  dir.create(out_tsne, showWarnings = FALSE, recursive = TRUE)
+  dir.create(out_umap, showWarnings = FALSE, recursive = TRUE)
+  
+  ## --- t-SNE ---
+  cat("Starting scDEED t-SNE...\n")
+  start <- Sys.time()
+  result_tsne <- scDEED(
+    data,
+    K                = K,
+    reduction.method = "tsne",
+    perplexity       = grid$tsne_perplexity,
+    check_duplicates = FALSE
+  )
+  end <- Sys.time()
+  time_tsne <- end - start
+  print(time_tsne)
+  
+  ## --- UMAP ---
+  cat("Starting scDEED UMAP...\n")
+  start <- Sys.time()
+  result_umap <- scDEED(
+    data,
+    K                = K,
+    reduction.method = "umap",
+    n_neighbors      = grid$umap_n_neighbors,
+    min.dist         = grid$umap_min_dist,
+    check_duplicates = FALSE
+  )
+  end <- Sys.time()
+  time_umap <- end - start
+  print(time_umap)
+  
+  ## Save (separate folders)
+  saveRDS(result_tsne, file.path(out_tsne, paste0("tsne_best_", name, ".Rds")))
+  saveRDS(data.frame(time = time_tsne, method = "tSNE"),
+          file.path(out_tsne, paste0("timeelapsed_", name, ".Rds")))
+  
+  saveRDS(result_umap, file.path(out_umap, paste0("umap_best_", name, ".Rds")))
+  saveRDS(data.frame(time = time_umap, method = "UMAP"),
+          file.path(out_umap, paste0("timeelapsed_", name, ".Rds")))
+  
+  invisible(TRUE)
+}
+
+## --------------------------
+## 5) Datasets list
+## --------------------------
+datasets <- list.files("../data/", full.names = TRUE)
+
+## If you want to exclude MNIST + Astro, uncomment:
+# datasets <- datasets[!grepl("mnist|astro", datasets, ignore.case = TRUE)]
+
+for (dataset in datasets) {
+  name <- tools::file_path_sans_ext(basename(dataset))
+  run_scdeed_all_data(path = dataset, name = name)
+}
