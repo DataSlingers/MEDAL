@@ -7,17 +7,47 @@
 ##   - checkpoint messages to pinpoint where OOM occurs
 ## ============================================================
 
-suppressPackageStartupMessages({
-  if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr", repos="https://cloud.r-project.org")
-  if (!requireNamespace("devtools", quietly = TRUE)) install.packages("devtools", repos="https://cloud.r-project.org")
+#suppressPackageStartupMessages({
+#  if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr", repos="https://cloud.r-project.org")
+#  if (!requireNamespace("devtools", quietly = TRUE)) install.packages("devtools", repos="https://cloud.r-project.org")
   
   #devtools::install_github("zhexuandliu/RtsneWithP", upgrade = "never")
   #devtools::install_github("zhexuandliu/neMDBD", upgrade = "never")
   
+#  library(dplyr)
+#  library(neMDBD)
+#  library(RtsneWithP)
+#})
+
+
+suppressPackageStartupMessages({
+  # Ensure installs go to a user-writable library
+  userlib <- Sys.getenv("R_LIBS_USER")
+  if (nzchar(userlib)) {
+    dir.create(userlib, recursive = TRUE, showWarnings = FALSE)
+    .libPaths(c(userlib, .libPaths()))
+  }
+
+  # CRAN deps
+  if (!requireNamespace("dplyr", quietly = TRUE))
+    install.packages("dplyr", repos="https://cloud.r-project.org")
+
+  # Use remotes instead of devtools (much lighter; fewer system deps)
+  if (!requireNamespace("remotes", quietly = TRUE))
+    install.packages("remotes", repos="https://cloud.r-project.org")
+
+  # Install GitHub packages only if missing
+  if (!requireNamespace("RtsneWithP", quietly = TRUE))
+    remotes::install_github("zhexuandliu/RtsneWithP", upgrade = "never")
+
+  if (!requireNamespace("neMDBD", quietly = TRUE))
+    remotes::install_github("zhexuandliu/neMDBD", upgrade = "never")
+
   library(dplyr)
   library(neMDBD)
   library(RtsneWithP)
 })
+
 
 set.seed(1453)
 
@@ -49,6 +79,7 @@ get_perplexity_list <- function(df_name) {
   if (df_name == "HYDRA") return(c(5, 10, 23, 49, 107, 232, 499, 1077, 2320, 4999))
   if (df_name == "TASIC") return(c(5, 10, 24, 53, 116, 256, 564, 1241, 2729, 6000))
   if (df_name == "ASTRO") return(c(3, 4, 6, 8, 12, 18, 26, 55, 80, 115, 167, 240, 346, 499))
+  #if (df_name == "ASTRO") return(c(3, 4))
   stop("Unknown df_name: ", df_name)
 }
 
@@ -107,7 +138,7 @@ run_one_dataset <- function(csv_path,
                             max_iter = 1000,
                             top_frac = 0.05,
                             length_param = 0.5,
-                            approx = 0) {
+                            approx = 1) {
   
   base <- basename(csv_path)
   stem <- sub("\\.csv$", "", base)
@@ -189,6 +220,7 @@ run_one_dataset <- function(csv_path,
       approx = approx,
       no.cores = pscore_cores
     )
+    #pscore <- rep(0, n)
     rt_p <- as.numeric((proc.time() - t0)[["elapsed"]])
     message("     [pscore] done  | elapsed = ", rt_p, " sec")
     
@@ -295,7 +327,7 @@ run_one_dataset <- function(csv_path,
 ## ----------------------------
 ## 3) Driver: loop over all *_train.csv
 ## ----------------------------
-input_dir <- "../data"
+input_dir <- "../data2"
 
 ## CHANGED: write everything under results_pcs/
 out_dir <- "results_pcs"

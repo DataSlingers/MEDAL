@@ -91,12 +91,12 @@ doParallel::registerDoParallel(cores = 30)
 ## --------------------------
 ## This expects that you already replaced slot->layer in scDEED/R/scDEED.R
 source("scDEED/R/scDEED.R")
-
+#library(scDEED)
 ## --------------------------
 ## 3) Dataset-specific grids (from your table)
 ## --------------------------
 mnist_umap_n <- c(5, 6, 9, 13, 18, 25, 35, 49, 69, 96, 134, 186, 258, 359, 499)
-mnist_tsne_p <- c(5, 11, 27, 62, 146, 341, 793, 1846, 4297)
+mnist_tsne_p <- c(5, 11, 27, 62, 146, 341, 793, 1846)
 
 hydra_umap_n <- c(5, 9, 18, 36, 71, 139, 271, 528, 1027, 2000)
 hydra_tsne_p <- c(5, 10, 23, 49, 107, 232, 499, 1077, 2320, 4999)
@@ -159,7 +159,7 @@ get_param_grid <- function(key) {
 ## --------------------------
 ## 4) Runner
 ## --------------------------
-run_scdeed_all_data <- function(path, name) {
+run_scdeed_all_data <- function(path, name, K) {
   message("==== Dataset: ", name, " ====")
   
   ## Read
@@ -168,37 +168,57 @@ run_scdeed_all_data <- function(path, name) {
   ## Drop PC* and metadata columns
   drop_cols <- grepl("^PC", names(df)) | names(df) %in% c("split", "labels")
   df <- df[, !drop_cols, drop = FALSE]
-  
+    
+  if ("label" %in% names(df)) {
+        cell_ids <- df$label
+        df <- df[, names(df) != "label", drop = FALSE]
+    } else {
+        cell_ids <- paste0("cell_", seq_len(nrow(df)))
+    }
+
+
   ## Drop any columns with empty/NA names (prevents Seurat/Matrix errors)
   bad_names <- is.na(names(df)) | trimws(names(df)) == ""
   if (any(bad_names)) {
     df <- df[, !bad_names, drop = FALSE]
   }
   
+  feature_names <- names(df)
   ## Coerce to numeric & finite
   df[] <- lapply(df, function(x) suppressWarnings(as.numeric(x)))
-  mat_cells_features <- as.matrix(df)          # cells x features
-  mat_cells_features[!is.finite(mat_cells_features)] <- 0
-  
+  #mat_cells_features <- as.matrix(df)          # cells x features
+  #mat_cells_features[!is.finite(mat_cells_features)] <- 0
+  mat <- t(as.matrix(df))
+  mat[!is.finite(mat)] <- 0
   ## Seurat expects features x cells → transpose
-  mat <- t(mat_cells_features)                 # features x cells
+  # mat <- t(mat_cells_features)                 # features x cells
   
   ## Ensure feature names exist + unique (avoid LogMap / empty rowname issues)
-  feat <- rownames(mat)
-  feat[is.na(feat) | trimws(feat) == ""] <- paste0("feature_", which(is.na(feat) | trimws(feat) == ""))
-  feat <- make.unique(feat)
-  rownames(mat) <- feat
-  
+  #feat <- rownames(mat)
+  #feat[is.na(feat) | trimws(feat) == ""] <- paste0("feature_", which(is.na(feat) | trimws(feat) == ""))
+  #feat <- make.unique(feat)
+  #rownames(mat) <- feat
+  rownames(mat) <- make.unique(ifelse(
+        is.na(feature_names) | trimws(feature_names) == "",
+        paste0("feature_", seq_along(feature_names)),
+        feature_names
+    ))
+  colnames(mat) <- make.unique(ifelse(
+        is.na(cell_ids) | trimws(as.character(cell_ids)) == "",
+        paste0("cell_", seq_along(cell_ids)),
+        as.character(cell_ids)
+    ))
+  print(mat)
   ## Build Seurat object and place your already-scaled data in scale.data (no extra norm/scale)
   data <- CreateSeuratObject(counts = mat, assay = "RNA")
   DefaultAssay(data) <- "RNA"
-  data <- SetAssayData(data, assay = "RNA", layer = "scale.data", new.data = mat)
+  data <- SetAssayData(data, assay = "RNA", slot = "scale.data", new.data = mat)
   
   ## Use ALL features as variable features (so PCA uses all columns you provide)
   Seurat::VariableFeatures(data) <- rownames(mat)
   
   ## Default scDEED example-style K
-  K <- 8
+  #K <- 8
   
   ## Run PCA (creates the default 'pca' reduction that scDEED expects)
   data <- Seurat::RunPCA(
@@ -262,12 +282,12 @@ run_scdeed_all_data <- function(path, name) {
 ## --------------------------
 ## 5) Datasets list
 ## --------------------------
-datasets <- list.files("../data/", full.names = TRUE)
+datasets <- list.files("data/", full.names = TRUE)
 
 ## If you want to exclude MNIST + Astro, uncomment:
-# datasets <- datasets[!grepl("mnist|astro", datasets, ignore.case = TRUE)]
+datasets <- datasets[!grepl("mnist|tasic|astro", datasets, ignore.case = TRUE)]
 
 for (dataset in datasets) {
   name <- tools::file_path_sans_ext(basename(dataset))
-  run_scdeed_all_data(path = dataset, name = name)
+  run_scdeed_all_data(path = dataset, name = name, K=6)
 }

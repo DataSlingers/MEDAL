@@ -6,12 +6,14 @@
 #SBATCH --mem=160g
 #SBATCH --job-name=scdeed
 #SBATCH -t 96:00:00
-#SBATCH --output=scdeed_%j.out
-#SBATCH --error=scdeed_%j.err
-#SBATCH --chdir=/nas/longleaf/home/tarek/MEDAL_Comparisons
+#SBATCH --output=logs/scdeed_%j.out
+#SBATCH --error=logs/scdeed_%j.err
+#SBATCH --chdir=/share/ctn/users/bnc2119/MEDAL/comparisons
 
 module purge
-module add r/4.4.0
+#module add r/4.4.0
+module load anaconda3-2023.07
+conda activate medalcomp
 
 # ------------------------------------------------------------
 # Use a Seurat-v4-only library so scDEED's slot= calls work
@@ -36,30 +38,20 @@ Rscript --vanilla -e '
 options(repos = c(CRAN="https://cloud.r-project.org"))
 .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
 
-if (!requireNamespace("remotes", quietly=TRUE)) install.packages("remotes", quiet=TRUE)
-
-need <- function(pkg, min_version=NULL, max_version=NULL) {
-  if (!requireNamespace(pkg, quietly=TRUE)) return(TRUE)
-  v <- as.character(utils::packageVersion(pkg))
-  if (!is.null(min_version) && utils::packageVersion(pkg) < min_version) return(TRUE)
-  if (!is.null(max_version) && utils::packageVersion(pkg) >= max_version) return(TRUE)
-  FALSE
-}
-
-# Force SeuratObject < 5 and Seurat 4.x
-if (need("SeuratObject", max_version="5.0.0")) {
-  remotes::install_version("SeuratObject", version="4.1.4", dependencies=TRUE, quiet=TRUE)
-}
-if (need("Seurat", max_version="5.0.0")) {
-  remotes::install_version("Seurat", version="4.4.0", dependencies=TRUE, quiet=TRUE)
+check_ver <- function(pkg, want_prefix) {
+  if (!requireNamespace(pkg, quietly=TRUE)) stop("Missing package: ", pkg)
+  v <- as.character(packageVersion(pkg))
+  if (!startsWith(v, want_prefix)) stop("Wrong version for ", pkg, ": ", v, " (wanted ", want_prefix, "x)")
+  cat(pkg, "=", v, "\n")
 }
 
 cat("LIBPATHS:\n"); print(.libPaths())
-cat("SeuratObject:", as.character(packageVersion("SeuratObject")), "\n")
-cat("Seurat      :", as.character(packageVersion("Seurat")), "\n")
+
+check_ver("SeuratObject", "4.")
+check_ver("Seurat", "4.")
 '
 
 # ------------------------------------------------------------
 # Run scDEED script (now under Seurat v4 API)
 # ------------------------------------------------------------
-Rscript --vanilla scDEED/scdeed_compare.R
+stdbuf -oL -eL Rscript --vanilla scDEED/scdeed_compare.R

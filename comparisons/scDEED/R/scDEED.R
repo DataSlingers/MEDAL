@@ -30,8 +30,8 @@ Permuted <- function(pbmc,
   pbmc.permuted <- pbmc
   
   # ---- UPDATED: slot -> layer ----
-  X          <- Seurat::GetAssayData(pbmc, layer = layer)
-  X_permuted <- Seurat::GetAssayData(pbmc.permuted, layer = layer)
+  X          <- Seurat::GetAssayData(pbmc, slot = slot)
+  X_permuted <- Seurat::GetAssayData(pbmc.permuted, slot = slot)
   
   setTxtProgressBar(pb, 0.4)
   
@@ -50,7 +50,7 @@ Permuted <- function(pbmc,
   # ---- UPDATED: slot -> layer ----
   pbmc.permuted <- Seurat::SetAssayData(
     pbmc.permuted,
-    layer    = layer,
+    slot    = slot,
     new.data = X_permuted,
     assay    = default_assay
   )
@@ -292,7 +292,7 @@ scDEED <- function(input_data, K,
   if (is.na(permuted)) {
     print("Permuting data")
     input_data.permuted <- suppressMessages(
-      Permuted(input_data, K = K, layer = layer, default_assay = default_assay)
+      Permuted(input_data, K = K, slot = slot, default_assay = default_assay)
     )
     print("Permutation finished")
   } else {
