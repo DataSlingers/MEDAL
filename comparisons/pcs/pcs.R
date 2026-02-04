@@ -156,7 +156,7 @@ run_one_dataset <- function(csv_path,
   names(X) <- sanitize_colnames(names(X))
   
   nm <- names(X)
-  keep <- !(tolower(nm) %in% c("label", "split"))
+  keep <- !(tolower(nm) %in% c("label", "split", "labels"))
   dropped <- nm[!keep]
   if (length(dropped)) message("Dropped label/split columns: ", paste(dropped, collapse=", "))
   X <- X[, keep, drop=FALSE]
@@ -171,6 +171,18 @@ run_one_dataset <- function(csv_path,
   X_mat <- as.matrix(X)
   n <- nrow(X_mat)
   
+  dup <- duplicated(X_mat)
+  if (any(dup)) {
+    message("Found ", sum(dup),
+          " duplicate rows; adding tiny jitter to duplicates for Rtsne.")
+    eps <- 1e-10
+    X_mat[dup, ] <- X_mat[dup, ] +
+      matrix(
+        rnorm(sum(dup) * ncol(X_mat), sd = eps),
+        nrow = sum(dup),
+        ncol = ncol(X_mat)
+      )
+  } 
   perplexity_list <- get_perplexity_list(df_name)
   max_safe <- (n - 1) / 3
   perplexity_list <- perplexity_list[perplexity_list < max_safe]
@@ -327,13 +339,13 @@ run_one_dataset <- function(csv_path,
 ## ----------------------------
 ## 3) Driver: loop over all *_train.csv
 ## ----------------------------
-input_dir <- "../data2"
+input_dir <- "data"
 
 ## CHANGED: write everything under results_pcs/
 out_dir <- "results_pcs"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
-csv_files <- list.files(input_dir, pattern = "_train\\.csv$", full.names = TRUE, ignore.case = TRUE)
+csv_files <- list.files(input_dir, pattern = "mnist_train_pc8\\.csv$", full.names = TRUE, ignore.case = TRUE)
 if (!length(csv_files)) stop("No *_train.csv files found in input_dir: ", input_dir)
 
 message("Found ", length(csv_files), " dataset(s) in ", normalizePath(input_dir))

@@ -5,8 +5,8 @@ import os
 import numpy as np
 from pathlib import Path
 import torch.nn as nn
-from .core import MEDAL
-from .dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
+from medal.core import MEDAL
+from medal.dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX
 import itertools
 
 def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
@@ -31,7 +31,8 @@ def get_dataset_config(dataset_name, model_variant="medal", **update_kws):
     config["model_variant"] = model_variant
     config["dataset_name"] = dataset_name
     if update_kws:
-        config.update(update_kws)
+        config.update(**update_kws)
+    print(config)
     return config
 
 def build_teacher_grid(dataset_name, teachers_to_run, seeds=range(1), mode = "teacher_sweep"):
@@ -282,17 +283,17 @@ def compare_teacher(config):
 
 if __name__ == "__main__":
     DEVICE = "cuda"
-    dataset_name = "mnist"
+    dataset_name = "astro"
     variant = "medal"
-    teachers = ["umap"]
+    teachers = ["pca"]
 
-    config = get_dataset_config(dataset_name, variant, update_kws={
-        "verbose": False,
-        "pretrained_path": None,
-        "retrain_teacher": False,
-        "save_dir": PATH_PREFIX + f'/tmp_results/chkpt',
+    config = get_dataset_config(dataset_name, variant,
+        verbose= False,
+        pretrained_path= None,
+        retrain_teacher= False,
+        save_dir= PATH_PREFIX + f'/tmp_results/chkpt',
         # f'/user/bnc2119/drd/results/pretrain/{dataset_name}_pretrain.pt',
-    }).copy()
+    ).copy()
     # config.update({
     #     "verbose": False,
     #     "pretrained_path": None,

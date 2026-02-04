@@ -42,9 +42,9 @@ TEACHER_SWEEP_SPECS = {
         "pca": {"n_components": [2]},
     },
     "astro": {
-        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "min_dist": [0.1]},
-        "tsne": {"perplexity": np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int))},
-        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "min_dist": [0.1], "n_components": [2]},
+        "tsne": {"perplexity": np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int)), "n_components": [2]},
+        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "n_components": [2]},
         "pca": {"n_components": [2]},
     },
 }

@@ -2,7 +2,7 @@
 #SBATCH -p general
 #SBATCH -N 1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=60
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=160g
 #SBATCH --job-name=scdeed
 #SBATCH -t 96:00:00

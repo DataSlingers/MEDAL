@@ -208,7 +208,7 @@ run_scdeed_all_data <- function(path, name, K) {
         paste0("cell_", seq_along(cell_ids)),
         as.character(cell_ids)
     ))
-  print(mat)
+  message("n = ", ncol(mat), ", p = ", nrow(mat))
   ## Build Seurat object and place your already-scaled data in scale.data (no extra norm/scale)
   data <- CreateSeuratObject(counts = mat, assay = "RNA")
   DefaultAssay(data) <- "RNA"
@@ -285,7 +285,7 @@ run_scdeed_all_data <- function(path, name, K) {
 datasets <- list.files("data/", full.names = TRUE)
 
 ## If you want to exclude MNIST + Astro, uncomment:
-datasets <- datasets[!grepl("mnist|tasic|astro", datasets, ignore.case = TRUE)]
+datasets <- datasets[!grepl("astro|tasic|mnist", datasets, ignore.case = TRUE)]
 
 for (dataset in datasets) {
   name <- tools::file_path_sans_ext(basename(dataset))

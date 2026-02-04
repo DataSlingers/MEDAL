@@ -45,14 +45,14 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         X = data.drop('labels', axis=1).to_numpy()
     elif dataset_name == "astro":
         # OG dim (3286, 19)
-        X = pd.read_csv('/user/bnc2119/drd/data_mean_imputed_with_ids_all.csv', index_col=0).to_numpy()
-        labs = pd.read_csv('/user/bnc2119/drd/cluster_labels_final.csv', index_col=0).to_numpy().flatten()
+        X = pd.read_csv('/share/ctn/users/bnc2119/drd_data/data_mean_imputed_with_ids_all.csv', index_col=0).to_numpy()
+        labs = pd.read_csv('/share/ctn/users/bnc2119/drd_data/cluster_labels_final.csv', index_col=0).to_numpy().flatten()
         needs_scaling = True
     elif dataset_name == "cortical":
-        X = np.load('/user/bnc2119/drd/preprocessed-data.npy')
-        labs = np.load('/user/bnc2119/drd/tasic_cluster_labels.npy', allow_pickle = True)
+        X = np.load('/share/ctn/users/bnc2119/drd_data/preprocessed-data.npy')
+        labs = np.load('/share/ctn/users/bnc2119/drd_data/tasic_cluster_labels.npy', allow_pickle = True)
     elif dataset_name == "macaque":
-        data = pd.read_csv('/shared/share_mala/irchang/drd/tmp/macaque1_pc100.csv')
+        data = pd.read_csv('/share/ctn/users/bnc2119/drd_data/macaque1_pc100.csv')
         labs = data['labels']
         X = data.drop('labels', axis=1).to_numpy()
     elif dataset_name == "synthetic":
