@@ -46,6 +46,8 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(neMDBD)
   library(RtsneWithP)
+  library(Matrix)
+  library(reticulate)
 })
 
 
@@ -68,6 +70,10 @@ Sys.setenv(
   VECLIB_MAXIMUM_THREADS = 1,
   NUMEXPR_NUM_THREADS = 1
 )
+
+Sys.setenv(RETICULATE_AUTOCONFIGURE = "FALSE")
+Sys.setenv(RETICULATE_PYTHON = "/share/ctn/users/bnc2119/.conda/envs/medalcomp/bin/python")
+
 message("Set BLAS/OpenMP thread env vars to 1")
 
 ## ----------------------------
@@ -79,7 +85,6 @@ get_perplexity_list <- function(df_name) {
   if (df_name == "HYDRA") return(c(5, 10, 23, 49, 107, 232, 499, 1077, 2320, 4999))
   if (df_name == "TASIC") return(c(5, 10, 24, 53, 116, 256, 564, 1241, 2729, 6000))
   if (df_name == "ASTRO") return(c(3, 4, 6, 8, 12, 18, 26, 55, 80, 115, 167, 240, 346, 499))
-  #if (df_name == "ASTRO") return(c(3, 4))
   stop("Unknown df_name: ", df_name)
 }
 
@@ -124,9 +129,8 @@ theta_for_n <- function(n) {
 
 # IMPORTANT: avoid parallel fork memory spikes for large n
 pscore_cores_for_n <- function(n, cores) {
-  if (n >= 10000) return(1L)         # <-- key OOM fix
-  if (n >= 5000)  return(min(cores, 4L))
-  return(min(cores, 8L))
+  if (n >= 5000) return(1L)         # <-- key OOM fix
+  return(min(cores, 1L))
 }
 
 ## ----------------------------
@@ -134,6 +138,7 @@ pscore_cores_for_n <- function(n, cores) {
 ## ----------------------------
 run_one_dataset <- function(csv_path,
                             out_dir,
+                            no_rep = 1,
                             cores = 10,
                             max_iter = 1000,
                             top_frac = 0.05,
@@ -191,7 +196,7 @@ run_one_dataset <- function(csv_path,
   message("n = ", n, ", p = ", ncol(X_mat))
   message("Using perplexities: ", paste(perplexity_list, collapse=", "))
   
-  theta_use <- theta_for_n(n)
+  theta_use <- 0.0 # theta_for_n(n)
   pscore_cores <- pscore_cores_for_n(n, cores)
   message("theta_use = ", theta_use, " | pscore_cores = ", pscore_cores)
   
@@ -202,7 +207,7 @@ run_one_dataset <- function(csv_path,
   
   # (re)start scores file with header
   write.csv(
-    data.frame(perplexity=integer(), point_id=integer(), pscore=double(), sscore=double()),
+    data.frame(perplexity=integer(), point_id=integer(), sscore=double()), #pscore=double(), sscore=double()),
     scores_path, row.names=FALSE
   )
   
@@ -210,35 +215,70 @@ run_one_dataset <- function(csv_path,
   
   best_mean_pscore <- Inf; best_mean_pscore_perp <- NA; best_mean_pscore_vec <- NULL
   best_mean_sscore <- Inf; best_mean_sscore_perp <- NA; best_mean_sscore_vec <- NULL
-  
+  np <- import("numpy")
   for (i in seq_along(perplexity_list)) {
     perp <- perplexity_list[i]
     message("  -> perplexity = ", perp, " (", i, "/", length(perplexity_list), ")")
     
     message("     [tSNE] starting")
-    tsne_out <- RtsneWithP::Rtsne(
-      X_mat,
-      perplexity = perp,
-      theta = theta_use,
-      max_iter = max_iter
-    )
+
+#     tsne_out <- RtsneWithP::Rtsne(
+#       X_mat,
+#       perplexity = perp,
+#       theta = theta_use,
+#       max_iter = max_iter
+#     )
+    y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_train_%d.npy", perp, no_rep)
+    p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_P_%d.mtx", perp, no_rep)
+#     y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/astro_tsne_%d_0_train.npy", perp)
+#     p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/astro_tsne_%d_0_P.mtx", perp)
+    message("     [LOAD] Y from: ", y_path)
+    Y <- np$load(y_path)
+    Y <- as.matrix(Y)
+      
+    if (nrow(Y) != n || ncol(Y) != 2) {
+      stop(sprintf("Y has shape %dx%d but expected %dx2", nrow(Y), ncol(Y), n))
+    } 
+      
+    message("     [LOAD] P from: ", p_path)
+    P <- Matrix::readMM(p_path)
+    P <- as(P, "CsparseMatrix")  # efficient sparse column format
+    P <- as.matrix(P)
+
+    # Quick sanity checks (highly recommended)
+    sP <- sum(P)
+    message(sprintf("     [CHECK] dim(Y)=%dx%d | dim(P)=%dx%d, sum(P)=%.6g",
+                    nrow(Y), ncol(Y), nrow(P), ncol(P), sP))
+
+    if (!is.finite(sP) || sP <= 0) {
+      stop("P appears invalid: sum(P) <= 0 or not finite")
+    }
+      
+    tsne_out <- list(Y = Y, P = P, perplexity = perp)
+      
+    # ---- paths ----
     message("     [tSNE] done  | dim(Y) = ", paste(dim(tsne_out$Y), collapse="x"))
-    
+    # Add diagnostic code before line 227
+    message("     [DIAGNOSTIC] Checking data before pscore computation")
+    message("     [DIAGNOSTIC] X dimensions: ", paste(dim(X_mat), collapse="x"))
+    message("     [DIAGNOSTIC] Y dimensions: ", paste(dim(tsne_out$Y), collapse="x"))
+    message("     [DIAGNOSTIC] Checking for NaN/Inf in X: ", any(!is.finite(X_mat)))
+    message("     [DIAGNOSTIC] Checking for NaN/Inf in Y: ", any(!is.finite(tsne_out$Y)))
+    message("     [DIAGNOSTIC] Checking for duplicates in Y: ", sum(duplicated(tsne_out$Y))) 
     message("     [pscore] starting (no.cores = ", pscore_cores, ")")
     t0 <- proc.time()
-    pscore <- perturbation_score_compute(
-      X_mat, tsne_out$Y, perp,
-      length = length_param,
-      approx = approx,
-      no.cores = pscore_cores
-    )
-    #pscore <- rep(0, n)
+    #pscore <- perturbation_score_compute(
+    # X_mat, tsne_out$Y, perp,
+    # length = length_param,
+    # approx = 2,
+    # no.cores = pscore_cores
+    #)
     rt_p <- as.numeric((proc.time() - t0)[["elapsed"]])
     message("     [pscore] done  | elapsed = ", rt_p, " sec")
-    
+    t1 <- proc.time()    
     message("     [sscore] starting")
-    t1 <- proc.time()
     sscore <- singularity_score_compute(tsne_out$Y, tsne_out$P)
+  
     rt_s <- as.numeric((proc.time() - t1)[["elapsed"]])
     message("     [sscore] done  | elapsed = ", rt_s, " sec")
     
@@ -246,58 +286,59 @@ run_one_dataset <- function(csv_path,
     point_df <- data.frame(
       perplexity = perp,
       point_id   = seq_len(n),
-      pscore     = as.numeric(pscore),
+      #pscore     = as.numeric(pscore),
       sscore     = as.numeric(sscore)
     )
     write.table(point_df, scores_path, sep=",", row.names=FALSE, col.names=FALSE, append=TRUE)
     
     # summary stats
-    mean_p <- mean(point_df$pscore, na.rm=TRUE)
+    #mean_p <- mean(point_df$pscore, na.rm=TRUE)
     mean_s <- mean(point_df$sscore, na.rm=TRUE)
-    top5_p <- top_tail_mean(point_df$pscore, frac=top_frac)
+    #top5_p <- top_tail_mean(point_df$pscore, frac=top_frac)
     top5_s <- top_tail_mean(point_df$sscore, frac=top_frac)
     
     summary_rows[[i]] <- data.frame(
       perplexity = perp,
-      mean_pscore = mean_p,
+     # mean_pscore = mean_p,
       mean_sscore = mean_s,
-      top5_mean_pscore = top5_p,
+     # top5_mean_pscore = top5_p,
       top5_mean_sscore = top5_s,
-      runtime_pscore_sec = rt_p,
+     # runtime_pscore_sec = rt_p,
       runtime_sscore_sec = rt_s
     )
     
-    # update best-by-mean vectors (keep only best in memory)
-    if (is.finite(mean_p) && mean_p < best_mean_pscore) {
-      best_mean_pscore <- mean_p
-      best_mean_pscore_perp <- perp
-      best_mean_pscore_vec <- point_df$pscore
-    }
     if (is.finite(mean_s) && mean_s < best_mean_sscore) {
       best_mean_sscore <- mean_s
       best_mean_sscore_perp <- perp
       best_mean_sscore_vec <- point_df$sscore
     }
     
+    
+    
     # free big objects ASAP
-    rm(tsne_out, pscore, sscore, point_df)
+    #rm(tsne_out, pscore, sscore, point_df)
+    rm(tsne_out, sscore, point_df)
     gc(verbose = FALSE)
   }
   
   elbow_df <- dplyr::bind_rows(summary_rows) %>% arrange(perplexity)
   
   # select elbow(top5) and meanbest
-  p_elbow_top5 <- find_elbow_triangle(elbow_df$perplexity, elbow_df$top5_mean_pscore)
+  #p_elbow_top5 <- find_elbow_triangle(elbow_df$perplexity, elbow_df$top5_mean_pscore)
   s_elbow_top5 <- find_elbow_triangle(elbow_df$perplexity, elbow_df$top5_mean_sscore)
   
-  p_best_mean <- best_mean_pscore_perp
+  #p_best_mean <- best_mean_pscore_perp
   s_best_mean <- best_mean_sscore_perp
-  
-  message("Chosen pscore elbow(top5) = ", p_elbow_top5, " | pscore best(mean) = ", p_best_mean)
+  # ---- FALLBACKS when elbow is NA or invalid ----
+
+  if (is.na(s_elbow_top5) || !(s_elbow_top5 %in% elbow_df$perplexity)) {
+    message("[warn] sscore elbow(top5) was NA/invalid; fell back to ", s_elbow_top5)
+  }
+  #message("Chosen pscore elbow(top5) = ", p_elbow_top5, " | pscore best(mean) = ", p_best_mean)
   message("Chosen sscore elbow(top5) = ", s_elbow_top5, " | pscore best(mean) = ", s_best_mean)
   
   # helper: read one vector back from scores CSV for a specific perplexity
-  read_metric_vec <- function(perp_value, metric=c("pscore","sscore")) {
+  read_metric_vec <- function(perp_value, metric=c("sscore")) { #"pscore","sscore")) {
     metric <- match.arg(metric)
     df <- read.csv(scores_path)
     sub <- df[df$perplexity == perp_value, ]
@@ -306,18 +347,18 @@ run_one_dataset <- function(csv_path,
   }
   
   # only read back elbow vectors (cheap)
-  p_elbow_vec <- read_metric_vec(p_elbow_top5, "pscore")
+  #p_elbow_vec <- read_metric_vec(p_elbow_top5, "pscore")
   s_elbow_vec <- read_metric_vec(s_elbow_top5, "sscore")
   
   X_out <- as.data.frame(X_mat)
-  X_out[[paste0("pscore_top5elbow_", p_elbow_top5)]] <- p_elbow_vec
+  # X_out[[paste0("pscore_top5elbow_", p_elbow_top5)]] <- p_elbow_vec
   X_out[[paste0("sscore_top5elbow_", s_elbow_top5)]] <- s_elbow_vec
-  X_out[[paste0("pscore_meanbest_", p_best_mean)]]   <- best_mean_pscore_vec
+  # X_out[[paste0("pscore_meanbest_", p_best_mean)]]   <- best_mean_pscore_vec
   X_out[[paste0("sscore_meanbest_", s_best_mean)]]   <- best_mean_sscore_vec
   
-  X_out$pscore_top5elbow_perplexity <- p_elbow_top5
+  #X_out$pscore_top5elbow_perplexity <- p_elbow_top5
   X_out$sscore_top5elbow_perplexity <- s_elbow_top5
-  X_out$pscore_meanbest_perplexity  <- p_best_mean
+  #X_out$pscore_meanbest_perplexity  <- p_best_mean
   X_out$sscore_meanbest_perplexity  <- s_best_mean
   
   write.csv(elbow_df, elbow_path, row.names=FALSE)
@@ -328,9 +369,9 @@ run_one_dataset <- function(csv_path,
     df_name = df_name,
     out_dir = dataset_out,
     elbows = list(
-      pscore_elbow_top5 = p_elbow_top5,
+      #pscore_elbow_top5 = p_elbow_top5,
       sscore_elbow_top5 = s_elbow_top5,
-      pscore_best_mean = p_best_mean,
+      #pscore_best_mean = p_best_mean,
       sscore_best_mean = s_best_mean
     )
   ))
@@ -344,28 +385,30 @@ input_dir <- "data"
 ## CHANGED: write everything under results_pcs/
 out_dir <- "results_pcs"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+for (no_rep in c(1,2,3,4,5)){
+    csv_files <- list.files(input_dir, pattern = sprintf("tasic_train_small_%d.csv", no_rep), full.names = TRUE, ignore.case = TRUE)
+#     csv_files <- list.files(input_dir, pattern = sprintf("astro_train.csv", no_rep), full.names = TRUE, ignore.case = TRUE)
+    if (!length(csv_files)) stop("No *_train.csv files found in input_dir: ", input_dir)
 
-csv_files <- list.files(input_dir, pattern = "mnist_train_pc8\\.csv$", full.names = TRUE, ignore.case = TRUE)
-if (!length(csv_files)) stop("No *_train.csv files found in input_dir: ", input_dir)
+    message("Found ", length(csv_files), " dataset(s) in ", normalizePath(input_dir))
 
-message("Found ", length(csv_files), " dataset(s) in ", normalizePath(input_dir))
+    results <- vector("list", length(csv_files))
+    for (i in seq_along(csv_files)) {
+      results[[i]] <- run_one_dataset(csv_files[i], out_dir=out_dir, cores=cores, no_rep = no_rep)
+    }
 
-results <- vector("list", length(csv_files))
-for (i in seq_along(csv_files)) {
-  results[[i]] <- run_one_dataset(csv_files[i], out_dir=out_dir, cores=cores)
-}
-
-run_log <- do.call(rbind, lapply(results, function(x) {
-  data.frame(
-    dataset = x$dataset,
-    df_name = x$df_name,
-    pscore_elbow_top5 = x$elbows$pscore_elbow_top5,
-    sscore_elbow_top5 = x$elbows$sscore_elbow_top5,
-    pscore_best_mean  = x$elbows$pscore_best_mean,
-    sscore_best_mean  = x$elbows$sscore_best_mean,
-    out_dir = x$out_dir,
-    stringsAsFactors = FALSE
-  )
-}))
-write.csv(run_log, file.path(out_dir, "run_log.csv"), row.names=FALSE)
-message("Wrote run log: ", normalizePath(file.path(out_dir, "run_log.csv")))
+    run_log <- do.call(rbind, lapply(results, function(x) {
+      data.frame(
+        dataset = x$dataset,
+        df_name = x$df_name,
+        #pscore_elbow_top5 = x$elbows$pscore_elbow_top5,
+        sscore_elbow_top5 = x$elbows$sscore_elbow_top5,
+        #pscore_best_mean  = x$elbows$pscore_best_mean,
+        sscore_best_mean  = x$elbows$sscore_best_mean,
+        out_dir = x$out_dir,
+        stringsAsFactors = FALSE
+      )
+    }))
+    write.csv(run_log, file.path(out_dir, "run_log.csv"), row.names=FALSE)
+    message("Wrote run log: ", normalizePath(file.path(out_dir, "run_log.csv")))
+ }

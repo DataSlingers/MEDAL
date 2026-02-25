@@ -227,6 +227,8 @@ run_scdeed_all_data <- function(path, name, K) {
     features = Seurat::VariableFeatures(data),
     verbose  = FALSE
   )
+  pca_embed <- data@reductions$pca@cell.embeddings[, 1:K]
+  write.csv(pca_embed, file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", paste0(name, "_pc", K, ".csv")))
   
   ## Dataset-specific grids
   key   <- infer_dataset_key(name)
@@ -237,40 +239,97 @@ run_scdeed_all_data <- function(path, name, K) {
   out_umap <- "results_scdeed_umap"
   dir.create(out_tsne, showWarnings = FALSE, recursive = TRUE)
   dir.create(out_umap, showWarnings = FALSE, recursive = TRUE)
+                 
+  reticulate::use_python("~/.conda/envs/medalcomp/bin/python", required = TRUE)
+  np <- reticulate::import("numpy")
+  openTSNE <- reticulate::import("openTSNE")
+  umap_lib <- reticulate::import("umap")
+  
+  run_and_save_tsne <- function(pca_mat, perplexity, save) {
+    tsne <- openTSNE$TSNE(
+      perplexity   = as.integer(perplexity),
+      random_state = 0L,
+      initialization = "pca"
+    )
+    embed <- reticulate::py_to_r(tsne$fit(pca_mat))
+    if (save){
+        np$save(
+          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", sprintf("%s_tsne_%d_0_train_pc%d.npy", name, as.integer(perplexity), K)),
+          reticulate::r_to_py(embed)
+        )
+    }
+    embed
+  }
+  
+  run_and_save_umap <- function(pca_mat, n_neighbors, min_dist, save) {
+      reducer <- umap_lib$UMAP(
+        n_neighbors  = as.integer(n_neighbors),
+        min_dist     = min_dist,
+        metric       = "euclidean",
+        random_state = 0L
+      )
+      embed <- reticulate::py_to_r(reducer$fit_transform(pca_mat))
+      if (save) {
+        np$save(
+          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data",
+                    sprintf("%s_umap_%d_%.1f_0_train_pc%d.npy", name, as.integer(n_neighbors), min_dist, K)),
+          reticulate::r_to_py(embed)
+        )
+      }
+      embed
+    }
   
   ## --- t-SNE ---
-  cat("Starting scDEED t-SNE...\n")
-  start <- Sys.time()
-  result_tsne <- scDEED(
-    data,
-    K                = K,
-    reduction.method = "tsne",
-    perplexity       = grid$tsne_perplexity,
-    check_duplicates = FALSE
-  )
-  end <- Sys.time()
-  time_tsne <- end - start
-  print(time_tsne)
+#   cat("Starting scDEED t-SNE...\n")
+#   start <- Sys.time()
+#   n_cells <- ncol(data)
+#   max_perp <- floor((n_cells - 1) / 3)
+#   cat("filtered grid:", grid$tsne_perplexity[grid$tsne_perplexity < floor((ncol(data)-1)/3)], "\n")
+#   result_tsne <- scDEED(
+#     data,
+#     K                     = K,
+#     reduction.method      = "tsne",
+#     perplexity            = grid$tsne_perplexity[grid$tsne_perplexity < max_perp],
+#     check_duplicates      = FALSE,
+#     embedding_fn = function(perplexity) {
+#       run_and_save_tsne(pca_embed, perplexity, save = TRUE)
+#     },
+#     permuted_embedding_fn = function(seurat_obj, perplexity) {
+#       pca_mat <- seurat_obj@reductions$pca@cell.embeddings[, 1:K]
+#       run_and_save_tsne(pca_mat, perplexity, save = FALSE)
+#     }
+#   )
+#   end <- Sys.time()
+#   time_tsne <- end - start
+#   print(time_tsne)
   
   ## --- UMAP ---
   cat("Starting scDEED UMAP...\n")
   start <- Sys.time()
+  
   result_umap <- scDEED(
     data,
-    K                = K,
-    reduction.method = "umap",
-    n_neighbors      = grid$umap_n_neighbors,
-    min.dist         = grid$umap_min_dist,
-    check_duplicates = FALSE
+    K                     = K,
+    reduction.method      = "umap",
+    n_neighbors           = grid$umap_n_neighbors,
+    min.dist              = grid$umap_min_dist,
+    check_duplicates      = FALSE,
+    embedding_fn = function(n_neighbors, min_dist) {
+      run_and_save_umap(pca_embed, n_neighbors, min_dist, save = TRUE)
+    },
+    permuted_embedding_fn = function(seurat_obj, n_neighbors, min_dist) {
+      pca_mat <- seurat_obj@reductions$pca@cell.embeddings[, 1:K]
+      run_and_save_umap(pca_mat, n_neighbors, min_dist, save = FALSE)
+    }
   )
   end <- Sys.time()
   time_umap <- end - start
   print(time_umap)
   
   ## Save (separate folders)
-  saveRDS(result_tsne, file.path(out_tsne, paste0("tsne_best_", name, ".Rds")))
-  saveRDS(data.frame(time = time_tsne, method = "tSNE"),
-          file.path(out_tsne, paste0("timeelapsed_", name, ".Rds")))
+#   saveRDS(result_tsne, file.path(out_tsne, paste0("tsne_best_", name, ".Rds")))
+#   saveRDS(data.frame(time = time_tsne, method = "tSNE"),
+#           file.path(out_tsne, paste0("timeelapsed_", name, ".Rds")))
   
   saveRDS(result_umap, file.path(out_umap, paste0("umap_best_", name, ".Rds")))
   saveRDS(data.frame(time = time_umap, method = "UMAP"),
@@ -282,10 +341,10 @@ run_scdeed_all_data <- function(path, name, K) {
 ## --------------------------
 ## 5) Datasets list
 ## --------------------------
-datasets <- list.files("data/", full.names = TRUE)
+datasets <- list.files("data_tmp/", full.names = TRUE)
 
 ## If you want to exclude MNIST + Astro, uncomment:
-datasets <- datasets[!grepl("astro|tasic|mnist", datasets, ignore.case = TRUE)]
+datasets <- datasets[!grepl("astro|tasic|hydra", datasets, ignore.case = TRUE)]
 
 for (dataset in datasets) {
   name <- tools::file_path_sans_ext(basename(dataset))
