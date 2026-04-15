@@ -107,12 +107,12 @@ def load_trained_ae(ckpt_path, input_dim, hidden_dims, latent_dim=2, batchnorm=F
     return model
 
 X, X_test, y, y_test = load_and_split("hydra", test_size=0.2, seed=0, labels=True)
-teacher_embed = np.load(Path(PATH_PREFIX) / 'embeddings/hydra_tsne_2320_0_train.npy')
-student = load_trained_ae(Path(PATH_PREFIX) / f'tmp_results/chkpt/hydra/tsne2_2320_0_ckpts/final.pt',
+teacher_embed = np.load(Path(PATH_PREFIX) / 'embeddings/hydra_umap_36_0.1_0_train.npy')
+student = load_trained_ae(Path(PATH_PREFIX) / f'tmp_results/chkpt/hydra/umap2_36_0.1_0_ckpts/final.pt',
                 input_dim=500,
                 hidden_dims=[309, 1792, 1792, 1792],
                 latent_dim=2, batchnorm=True)
 attr, global_imp = medal_feature_importance_ig(student, torch.from_numpy(X).float(), torch.from_numpy(teacher_embed))
 attr, global_imp = attr.detach().float().cpu(), global_imp.detach().float().cpu()
-np.save('attr_hydra_tsne_2320', attr)
-np.save('global_imp_hydra_tsne_2320', global_imp)
+np.save('attr_hydra_umap_36', attr)
+np.save('global_imp_hydra_umap_36', global_imp)
