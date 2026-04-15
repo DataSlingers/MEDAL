@@ -1,16 +1,15 @@
+# backward-compatibility shim — new code should import from medal.teacher and medal.io
+from medal.teacher import get_teacher_embeddings  # noqa: F401
+from medal.io import compute_losses, eval_student  # noqa: F401
+
 import torch
 from sklearn.metrics import mean_squared_error
 from sklearn.datasets import load_wine, load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.manifold import Isomap, SpectralEmbedding
-from openTSNE import TSNE
-import umap
-from sklearn.decomposition import PCA
 import pandas as pd, numpy as np
 from pathlib import Path
 import pickle
-import phate
 
 def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scaling_input = None, id_set = None):
     X, X_test, labs_train, labs_test = None, None, None, None
@@ -89,70 +88,6 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         X_test = scaler.transform(X_test) if X_test is not None else None
     return X_train, X_test
 
-def compute_losses(model, X, teacher_z=None, device=None):
-    model.eval()
-    if device is None:
-        device = next(model.parameters()).device
-    X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
-    # embeddings
-    with torch.no_grad():
-        x_recon, student_z = model(X_tensor)
-    x_recon = x_recon.cpu().numpy()
-    student_z = student_z.cpu().numpy()
-
-    recon_mse = mean_squared_error(X, x_recon)
-    if teacher_z is not None:
-        distill_mse = mean_squared_error(teacher_z, student_z)
-        return recon_mse, distill_mse
-    return recon_mse, None
-
-def get_teacher_embeddings(method, X_train, **teacher_kwargs):
-    """
-    method: str, e.g. "umap", "pca", "mlp"
-    teacher_kwargs: hyperparams for that method
-    Returns:
-      Z_train, Z_test
-    """
-    teacher_kwargs_cp = teacher_kwargs.copy()
-    teacher_kwargs_cp.pop("save_teacher_model", None)
-    teacher_kwargs_cp.pop("save_teacher_path", None)
-    if method == "umap":
-        model = umap.UMAP(**teacher_kwargs_cp)
-        Z_train = model.fit_transform(X_train)
-    elif method == "pca":
-        model = PCA(**teacher_kwargs_cp)
-        Z_train = model.fit_transform(X_train)
-    elif method == "tsne":
-        model = TSNE(**teacher_kwargs_cp, negative_gradient_method="fft").fit(X_train)
-        Z_train = model.transform(X_train)
-    elif method == "isomap":
-        model = Isomap(**teacher_kwargs_cp)
-        Z_train = model.fit_transform(X_train)
-    elif method == "spectral":
-        model = SpectralEmbedding(**teacher_kwargs_cp)
-        Z_train = model.fit_transform(X_train)
-    elif method == "phate":
-        model = phate.PHATE(**teacher_kwargs_cp)
-        Z_train = model.fit_transform(X_train)
-    else:
-        raise ValueError(f"Unknown teacher method {method}")
-    
-    if teacher_kwargs.get("save_teacher_model", False):
-        try:
-            model_path = Path(teacher_kwargs.get("save_teacher_path"))
-        except:
-            raise RuntimeError("Please provide a valid path for saving the model")
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(model_path, 'wb') as f:
-            pickle.dump(model, f)
-        print(f"Teacher model saved to {model_path}")
-    return Z_train
-
-
-def eval_student(student, X, Z):
-    rmse, dmse = compute_losses(model=student.model,
-                                X=X, teacher_z=Z)
-    return {"recon_mse": rmse, "distill_mse": dmse}
 
 def process_single_cell_data(data_fp, labels_fp = None):
     sep_regex = r'\s(?=(?:[^"]*"[^"]*")*[^"]*$)'
