@@ -31,7 +31,7 @@ Quick-start::
 """
 from medal.model import MEDAL, AutoEncoder
 from medal.normalizer import GlobalEmbeddingNormalizer
-from medal.tuning import tune_architecture, get_best_config
+from medal.tuning import tune_medal_architecture, ArchSearchResults, tune_architecture, get_best_config
 from medal.sweep import run_teacher_sweep, SweepResults
 from medal.selection import (
     select_teacher_param,
@@ -47,6 +47,8 @@ __all__ = [
     "AutoEncoder",
     "GlobalEmbeddingNormalizer",
     # Architecture search
+    "tune_medal_architecture",
+    "ArchSearchResults",
     "tune_architecture",
     "get_best_config",
     # Teacher sweep
