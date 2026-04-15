@@ -31,4 +31,19 @@ MANIFEST
 tmp/
 *.npy
 */.ipynb_checkpoints/*
-core.32084
+.ipynb_checkpoints/
+
+# Crash dumps
+core.*
+
+# Nested repo (managed separately)
+ltnc/
+
+# Comparison result outputs
+comparisons/results_scdeed_tsne/
+comparisons/results_scdeed_umap/
+comparisons/data_tmp/
+
+# Figure outputs
+*.pdf
+*.png
