@@ -111,67 +111,66 @@ def build_teacher_grid(dataset_name, teacher_name):
     return params
 
 
-MODE = "depth"
-DEVICE = "cuda"
-dataset_name = ["macaque"]
-teacher_name = "tsne" # replace with "umap", "isomap", "spectral", "pca", ...
-PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data" 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
+if __name__ == "__main__":
+    MODE = "depth"
+    DEVICE = "cuda"
+    dataset_name = ["macaque"]
+    teacher_name = "tsne" # replace with "umap", "isomap", "spectral", "pca", ...
+    PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7"
 
-ahbs = AsyncHyperBandScheduler(
-    time_attr="training_iteration",
-    metric="distill_loss", 
-    mode="min",
-    grace_period=1000,
-    max_t = 1000,
-)
-
-# Run the experiment (simplified approach without RunConfig for compatibility)
-for data_name in dataset_name:
-    path = f"{PATH_PREFIX}/tune_results/{MODE}_{data_name}_{teacher_name}.csv"
-
-    # activation analysis
-    config = architecture_analysis_grid(data_name, mode=MODE)
-    
-    teacher_config = build_teacher_grid(data_name, teacher_name)
-    precompute_teacher_embeddings(teacher_config, config, load_this_seed = 0)
-    config.update({
-        "teacher_config": teacher_config,
-        "load_this_seed": 0
-    })
-
-    analysis = tune.run(
-        compare_teacher,
-        name="drd_asynchyperband_distill_optimization",
-        num_samples=1, #10, 
-        resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
-        config= config,
-        verbose=1,
-        max_failures=0,
-        scheduler=ahbs,
-        storage_path="/tmp/ray_results",
+    ahbs = AsyncHyperBandScheduler(
+        time_attr="training_iteration",
+        metric="distill_loss",
+        mode="min",
+        grace_period=1000,
+        max_t=1000,
     )
 
-    analysis.results_df.to_csv(path)
-    print(f"Save results to {path}")
+    # Run the experiment
+    for data_name in dataset_name:
+        path = f"{PATH_PREFIX}/tune_results/{MODE}_{data_name}_{teacher_name}.csv"
 
-    print("="*50)
-    print("OPTIMIZATION COMPLETE")
-    print("="*50)
-    best_config = analysis.get_best_config("distill_loss", "min")
-    print(f"Best config: {best_config}")
+        config = architecture_analysis_grid(data_name, mode=MODE)
 
-    best_trial = analysis.get_best_trial("distill_loss", "min")
-    print(f"Best distill_loss achieved: {best_trial.last_result['distill_loss']}")
+        teacher_config = build_teacher_grid(data_name, teacher_name)
+        precompute_teacher_embeddings(teacher_config, config, load_this_seed=0)
+        config.update({
+            "teacher_config": teacher_config,
+            "load_this_seed": 0,
+        })
 
-    # Print top 5 configurations
-    print("\nTop 5 configurations:")
-    df = analysis.results_df.nsmallest(5, 'distill_loss')
-    for i, (idx, row) in enumerate(df.iterrows()):
-        print(f"{i+1}. Distill Loss: {row['distill_loss']}")
-        print(f"   Config: lr={row['config/lr']:.2e}, lambda_d={row['config/lambda_d']}, "
-            f"hidden_dims={row['config/hidden_dims']}")
-        print(f"   Architecture depth: {len(row['config/hidden_dims'])}")
-        print()
+        analysis = tune.run(
+            compare_teacher,
+            name="drd_asynchyperband_distill_optimization",
+            num_samples=1,
+            resources_per_trial={"cpu": 4, "gpu": 1},
+            config=config,
+            verbose=1,
+            max_failures=0,
+            scheduler=ahbs,
+            storage_path="/tmp/ray_results",
+        )
+
+        analysis.results_df.to_csv(path)
+        print(f"Save results to {path}")
+
+        print("=" * 50)
+        print("OPTIMIZATION COMPLETE")
+        print("=" * 50)
+        best_config = analysis.get_best_config("distill_loss", "min")
+        print(f"Best config: {best_config}")
+
+        best_trial = analysis.get_best_trial("distill_loss", "min")
+        print(f"Best distill_loss achieved: {best_trial.last_result['distill_loss']}")
+
+        print("\nTop 5 configurations:")
+        df = analysis.results_df.nsmallest(5, "distill_loss")
+        for i, (idx, row) in enumerate(df.iterrows()):
+            print(f"{i+1}. Distill Loss: {row['distill_loss']}")
+            print(f"   Config: lr={row['config/lr']:.2e}, lambda_d={row['config/lambda_d']}, "
+                  f"hidden_dims={row['config/hidden_dims']}")
+            print(f"   Architecture depth: {len(row['config/hidden_dims'])}")
+            print()
 
 
