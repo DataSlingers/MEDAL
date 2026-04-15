@@ -51,7 +51,7 @@ suppressPackageStartupMessages({
 })
 
 
-set.seed(1453)
+# set.seed(1453)
 
 ## ----------------------------
 ## 0) CPU/threads settings
@@ -143,7 +143,8 @@ run_one_dataset <- function(csv_path,
                             max_iter = 1000,
                             top_frac = 0.05,
                             length_param = 0.5,
-                            approx = 1) {
+                            approx = 1,
+                           load_this_seed = 0) {
   
   base <- basename(csv_path)
   stem <- sub("\\.csv$", "", base)
@@ -196,7 +197,7 @@ run_one_dataset <- function(csv_path,
   message("n = ", n, ", p = ", ncol(X_mat))
   message("Using perplexities: ", paste(perplexity_list, collapse=", "))
   
-  theta_use <- 0.0 # theta_for_n(n)
+  theta_use <- 0.5 # theta_for_n(n)
   pscore_cores <- pscore_cores_for_n(n, cores)
   message("theta_use = ", theta_use, " | pscore_cores = ", pscore_cores)
   
@@ -221,40 +222,49 @@ run_one_dataset <- function(csv_path,
     message("  -> perplexity = ", perp, " (", i, "/", length(perplexity_list), ")")
     
     message("     [tSNE] starting")
-
-#     tsne_out <- RtsneWithP::Rtsne(
-#       X_mat,
-#       perplexity = perp,
-#       theta = theta_use,
-#       max_iter = max_iter
-#     )
-    y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_train_%d.npy", perp, no_rep)
-    p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_P_%d.mtx", perp, no_rep)
-#     y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/astro_tsne_%d_0_train.npy", perp)
-#     p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/astro_tsne_%d_0_P.mtx", perp)
-    message("     [LOAD] Y from: ", y_path)
-    Y <- np$load(y_path)
-    Y <- as.matrix(Y)
       
-    if (nrow(Y) != n || ncol(Y) != 2) {
-      stop(sprintf("Y has shape %dx%d but expected %dx2", nrow(Y), ncol(Y), n))
-    } 
-      
-    message("     [LOAD] P from: ", p_path)
-    P <- Matrix::readMM(p_path)
-    P <- as(P, "CsparseMatrix")  # efficient sparse column format
-    P <- as.matrix(P)
+    pca_init <- prcomp(X_mat, center = TRUE, scale. = FALSE)$x[, 1:2]
+    # Scale to small values the way tSNE expects
+    pca_init <- pca_init / sd(pca_init[, 1]) * 0.0001
 
-    # Quick sanity checks (highly recommended)
-    sP <- sum(P)
-    message(sprintf("     [CHECK] dim(Y)=%dx%d | dim(P)=%dx%d, sum(P)=%.6g",
-                    nrow(Y), ncol(Y), nrow(P), ncol(P), sP))
-
-    if (!is.finite(sP) || sP <= 0) {
-      stop("P appears invalid: sum(P) <= 0 or not finite")
-    }
+    tsne_out <- RtsneWithP::Rtsne(
+      X_mat,
+      pca = FALSE,        # don't PCA reduce before applying TSNE
+      perplexity = perp,
+      theta = theta_use,
+      max_iter = max_iter,
+      Y_init = pca_init,      # random init
+      eta = n / 12
+    )
+    
+    # y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_train_%d.npy", perp, no_rep)
+    # p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_P_%d.mtx", perp, no_rep)
+    y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/%s_tsne_%d_%d_train_pcs.npy", tolower(df_name), perp, load_this_seed)
+    np$save(y_path, tsne_out$Y)
+    # p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/%s_tsne_%d_0_P.mtx", tolower(df_name), perp)
+    # message("     [LOAD] Y from: ", y_path)
+    # Y <- np$load(y_path)
+    # Y <- as.matrix(Y)
       
-    tsne_out <- list(Y = Y, P = P, perplexity = perp)
+    # if (nrow(Y) != n || ncol(Y) != 2) {
+    #   stop(sprintf("Y has shape %dx%d but expected %dx2", nrow(Y), ncol(Y), n))
+    # } 
+      
+    # message("     [LOAD] P from: ", p_path)
+    # P <- Matrix::readMM(p_path)
+    # P <- as(P, "CsparseMatrix")  # efficient sparse column format
+    # P <- as.matrix(P)
+
+    # # Quick sanity checks (highly recommended)
+    # sP <- sum(P)
+    # message(sprintf("     [CHECK] dim(Y)=%dx%d | dim(P)=%dx%d, sum(P)=%.6g",
+    #                 nrow(Y), ncol(Y), nrow(P), ncol(P), sP))
+
+    # if (!is.finite(sP) || sP <= 0) {
+    #   stop("P appears invalid: sum(P) <= 0 or not finite")
+    # }
+      
+    # tsne_out <- list(Y = Y, P = P, perplexity = perp)
       
     # ---- paths ----
     message("     [tSNE] done  | dim(Y) = ", paste(dim(tsne_out$Y), collapse="x"))
@@ -312,8 +322,6 @@ run_one_dataset <- function(csv_path,
       best_mean_sscore_perp <- perp
       best_mean_sscore_vec <- point_df$sscore
     }
-    
-    
     
     # free big objects ASAP
     #rm(tsne_out, pscore, sscore, point_df)
@@ -382,19 +390,18 @@ run_one_dataset <- function(csv_path,
 ## ----------------------------
 input_dir <- "data"
 
-## CHANGED: write everything under results_pcs/
-out_dir <- "results_pcs"
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-for (no_rep in c(1,2,3,4,5)){
-    csv_files <- list.files(input_dir, pattern = sprintf("tasic_train_small_%d.csv", no_rep), full.names = TRUE, ignore.case = TRUE)
-#     csv_files <- list.files(input_dir, pattern = sprintf("astro_train.csv", no_rep), full.names = TRUE, ignore.case = TRUE)
+for (load_this_seed in c(0, 2, 10)){
+    out_dir <- paste0("results_pcs_seed", load_this_seed)
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    # csv_files <- list.files(input_dir, pattern = sprintf("tasic_train_small_%d.csv", no_rep), full.names = TRUE, ignore.case = TRUE)
+    csv_files <- list.files(input_dir, pattern = sprintf("%s_train.csv", "astro"), full.names = TRUE, ignore.case = TRUE)
     if (!length(csv_files)) stop("No *_train.csv files found in input_dir: ", input_dir)
 
     message("Found ", length(csv_files), " dataset(s) in ", normalizePath(input_dir))
 
     results <- vector("list", length(csv_files))
     for (i in seq_along(csv_files)) {
-      results[[i]] <- run_one_dataset(csv_files[i], out_dir=out_dir, cores=cores, no_rep = no_rep)
+      results[[i]] <- run_one_dataset(csv_files[i], out_dir=out_dir, cores=cores, load_this_seed = load_this_seed)
     }
 
     run_log <- do.call(rbind, lapply(results, function(x) {

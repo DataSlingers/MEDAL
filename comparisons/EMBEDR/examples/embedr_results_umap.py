@@ -84,11 +84,15 @@ def run_one_dataset(
     n_jobs: int = -1,
     verbose: int = 0,
     do_cache: bool = False,
+    dataset = None,
+    load_this_seed = 0
 ):
     base = os.path.basename(csv_path)          # hydra_train.csv
     stem = os.path.splitext(base)[0]           # hydra_train
     key = dataset_key_from_filename(csv_path)  # HYDRA
-
+    order = base[:-4].split('_')[-1]
+    print("order is: ", order)
+    
     dataset_out = os.path.join(out_root, stem)
     os.makedirs(dataset_out, exist_ok=True)
 
@@ -101,7 +105,7 @@ def run_one_dataset(
     X_df = pd.read_csv(csv_path)
 
     # Drop label/split columns (case-insensitive)
-    drop_cols = [c for c in X_df.columns if c.lower() in ("label", "split")]
+    drop_cols = [c for c in X_df.columns if c.lower() in ("label", "split", "labels")]
     if len(drop_cols) > 0:
         print("Dropped label/split columns:", ", ".join(drop_cols))
         X_df = X_df.drop(columns=drop_cols)
@@ -133,13 +137,18 @@ def run_one_dataset(
         emb = EMBEDR(
             project_name=f"{stem}_nn_{k}",
             project_dir=dataset_out,   # safe place to write if caching ever turns on
+            dataset = dataset,
+            order = order,
             DRA="umap",                # CHANGED: tsne -> umap
+            DRA_params={},
             n_neighbors=int(k),        # CHANGED: perplexity -> n_neighbors
             n_data_embed=n_data_embed,
             n_null_embed=n_null_embed,
+            load_this_seed = load_this_seed,
             n_jobs=-1,
             verbose=verbose,
             do_cache=do_cache,         # default False for cluster robustness
+            random_state = load_this_seed
         )
         emb.fit(X)
         runtime = time.perf_counter() - t0
@@ -196,38 +205,38 @@ def run_one_dataset(
 # 5) Driver: scan input_dir for *_train.csv and run all
 # ============================================================
 if __name__ == "__main__":
-    np.random.seed(1453)
-
     # Same convention as your R script: code directory with ../data
-    input_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
-    out_root = "results_embedr_umap"
-    os.makedirs(out_root, exist_ok=True)
-
-    csv_files = sorted(glob.glob(os.path.join(input_dir, "*_train.csv"))) + sorted(
-        glob.glob(os.path.join(input_dir, "*_TRAIN.csv"))
-    )
-    # de-dup in case both patterns match
-    csv_files = sorted(list(set(csv_files)))
-
-    if len(csv_files) == 0:
-        raise FileNotFoundError(f"No *_train.csv files found in input_dir: {os.path.abspath(input_dir)}")
-
-    print(f"Found {len(csv_files)} dataset(s) in {os.path.abspath(input_dir)}")
-
-    run_log_rows = []
-    for csv_path in csv_files:
-        res = run_one_dataset(
-            csv_path=csv_path,
-            out_root=out_root,
-            n_data_embed=3,
-            n_null_embed=1,
-            n_jobs=-1,
-            verbose=0,
-            do_cache=False,   # keep cluster runs simple/robust
+    input_dir = '/share/ctn/users/bnc2119/MEDAL/comparisons/data'
+    for lts in [2,10]:
+        out_root = "results_embedr_umap_seed" + str(lts)
+        os.makedirs(out_root, exist_ok=True)
+        csv_files = sorted(glob.glob(os.path.join(input_dir, "astro_train.csv"))) + sorted( 
+            glob.glob(os.path.join(input_dir, "*_TRAIN.csv"))
         )
-        run_log_rows.append(res)
-
-    run_log = pd.DataFrame(run_log_rows)
-    run_log_path = os.path.join(out_root, "run_log.csv")
-    run_log.to_csv(run_log_path, index=False)
-    print("Wrote run log:", os.path.abspath(run_log_path))
+        # de-dup in case both patterns match
+        csv_files = sorted(list(set(csv_files)))
+    
+        if len(csv_files) == 0:
+            raise FileNotFoundError(f"No *_train.csv files found in input_dir: {os.path.abspath(input_dir)}")
+    
+        print(f"Found {len(csv_files)} dataset(s) in {os.path.abspath(input_dir)}")
+    
+        run_log_rows = []
+        for csv_path in csv_files:
+            res = run_one_dataset(
+                csv_path=csv_path,
+                out_root=out_root,
+                n_data_embed=1,
+                n_null_embed=1,
+                n_jobs=-1,
+                verbose=1,
+                do_cache=False,   # keep cluster runs simple/robust
+                dataset = "astro",
+                load_this_seed = lts
+            )
+            run_log_rows.append(res)
+    
+        run_log = pd.DataFrame(run_log_rows)
+        run_log_path = os.path.join(out_root, "run_log.csv")
+        run_log.to_csv(run_log_path, index=False)
+        print("Wrote run log:", os.path.abspath(run_log_path))

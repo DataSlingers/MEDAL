@@ -22,6 +22,16 @@ import scipy.stats as st
 from sklearn.utils import check_array, check_random_state
 from umap import UMAP
 import warnings
+class PrecomputedAffinity:
+    """Minimal affinity object wrapper for precomputed P matrices."""
+    def __init__(self, P, normalization='global', symmetrize=True):
+        self.P = P if sp.isspmatrix_csr(P) else sp.csr_matrix(P)
+        self.normalization = normalization
+        self.symmetrize = symmetrize
+        self._filename = 'precomputed'
+        self.n_neighbors = P.shape[0] - 1  # dummy value
+        self.kernel_params = {}
+        self.kNN_params = {}
 
 class EMBEDR(object):
 
@@ -33,8 +43,11 @@ class EMBEDR(object):
     def __init__(self,
                  X=None,
                  # Important hyperparameters
+                 dataset = None,
+                 order = None,
                  perplexity=None,
                  n_neighbors=None,
+                 load_this_seed = 0,
                  # kNN graph parameters
                  kNN_metric='euclidean',
                  kNN_alg='auto',
@@ -46,7 +59,7 @@ class EMBEDR(object):
                  # Dimensionality reduction parameters
                  n_components=2,
                  DRA='tsne',
-                 DRA_params={},
+                 DRA_params={"initialization": "pca", "neg_grad_method": "bh"},
                  # Embedding statistic parameters
                  EES_type="dkl",
                  EES_params={},
@@ -67,6 +80,9 @@ class EMBEDR(object):
         ## Important hyperparameters
         self.perplexity  = perplexity
         self.n_neighbors = n_neighbors
+        self.dataset = dataset
+        self.order = order
+        self.load_this_seed = load_this_seed
 
         ## kNN graph parameters
         self.kNN_metric = kNN_metric
@@ -511,7 +527,6 @@ class EMBEDR(object):
             return json.dump(hdr, f, indent=4)
 
     def _fit(self, null_fit=False):
-
         if not null_fit:
 
             ## Basically, no matter what, we need the kNN graph
@@ -520,25 +535,142 @@ class EMBEDR(object):
             ## If we're using t-SNE to embed or DKL as the EES, we need an
             ## affinity matrix.
             if (self.DRA in ['tsne', 't-sne']):
+                # from openTSNE import TSNE
+                # from openTSNE.affinity import PerplexityBasedNN
+                    
                 dP = self.get_affinity_matrix(X=self.data_X,
                                               kNN_graph=self.data_kNN)
                 self.data_P = dP
+#                 import scipy.io
+                 
+#                 P_matrix = scipy.io.mmread(
+#                     f'/share/ctn/users/bnc2119/drd_data/embeddings/hydra_tsne_{self.perplexity}_0_P_{self.order}.mtx')
+#                 P_matrix = scipy.io.mmread(
+#                     f'/share/ctn/users/bnc2119/drd_data/embeddings/astro_tsne_{self.perplexity}_0_P.mtx')
+                
+                # aff = PerplexityBasedNN(
+                #         self.data_X,
+                #         perplexity=self.perplexity if np.isscalar(self.perplexity) else self.perplexity[0],
+                #         metric="euclidean",
+                #         n_jobs=self.n_jobs,
+                #         random_state=self.load_this_seed
+                #     )
+                # P_matrix = aff.P
+            
+                # self.data_P = PrecomputedAffinity(P_matrix, 
+                #                                 normalization='global',  
+                #                                 symmetrize=True)
+            
+                # Load precomputed embedding
+                # precomputed_Y = np.load(
+                #     f'/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_{self.perplexity}_0_train_{self.order}.npy')
+                # tsne = TSNE(
+                #     n_components=self.n_components,
+                #     initialization="pca",
+                #     negative_gradient_method="fft",
+                #     n_jobs=self.n_jobs,
+                #     random_state=self.load_this_seed
+                # )
+                # precomputed_Y = tsne.fit(affinities=aff)
+                # np.save(
+                #     f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy',
+                #     precomputed_Y)
+                # precomputed_Y = precomputed_Y[np.newaxis, :, :] # shape: (1, n_samples, n_components)
+                # print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy")
+            
+                # Calculate dEES directly using the precomputed data
+                # We need a locally-normalized version for EES calculation
+                # local_P = PrecomputedAffinity(P_matrix.copy(),
+                #                             normalization='local',
+                #                             symmetrize=False)
+                
+                # Calculate dEES directly
+                # precomputed_EES = self.calculate_EES(local_P.P, precomputed_Y)
+                
+                # Store results (bypass get_tSNE_embedding entirely)
+                # dY = precomputed_Y
+                # dEES = precomputed_EES
+                
 
             elif (self.DRA in ['umap']) and (self.EES_type == 'dkl'):
                 dP = self._get_asym_local_affmat(X=self.data_X,
                                                  kNN_graph=self.data_kNN)
                 self.data_P = dP
 
+                
+                # from umap import UMAP as UMAP_
+
+                # ---- 1. Fit UMAP — this computes the fuzzy simplicial set (local affinity) internally ----
+                # umap_obj = UMAP_(
+                #     n_components=self.n_components,
+                #     n_neighbors=self._max_nn,
+                #     metric=self.kNN_metric,
+                #     random_state= self.load_this_seed,
+                #     n_jobs=self.n_jobs,
+                #     **self.DRA_params
+                # )
+                # precomputed_Y = umap_obj.fit_transform(self.data_X)
+                # np.save(
+                #     f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy',
+                #     precomputed_Y)
+                # print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy")
+                # precomputed_Y = precomputed_Y[np.newaxis, :, :]  # shape: (1, n_samples, n_components)
+
+                # ---- 2. Extract the local affinity graph UMAP already computed ----
+                # graph_ is the sparse asymmetric local affinity matrix (exactly what
+                # _get_asym_local_affmat produces), normalization is per-row ('local')
+                # P_matrix = sp.csr_matrix(umap_obj.graph_)
+
+                # self.data_P = PrecomputedAffinity(sp.csr_matrix(P_matrix),
+                #                                   normalization='local',
+                #                                   symmetrize=False)
+                    
+
+                # import scipy.io
+           
+
+                # Load precomputed UMAP embedding
+                # precomputed_Y = np.load(
+                    # f'/share/ctn/users/bnc2119/drd_data/embeddings/hydra_umap_{self.n_neighbors}_0.1_0_train_{self.order}.npy')
+                # precomputed_Y = precomputed_Y[np.newaxis, :, :]  # shape: (1, n_samples, n_components)
+                
+
+                # Load precomputed affinity (the local graph you saved from UMAP)
+                # This should be umap_obj.graph_ that you saved when you originally ran UMAP
+                # print(f"loading /share/ctn/users/bnc2119/drd_data/embeddings/hydra_umap_{self.n_neighbors}_0.1_0_P_{self.order}.mtx")
+                # P_matrix = scipy.io.mmread(
+                #     f'/share/ctn/users/bnc2119/drd_data/embeddings/hydra_umap_{self.n_neighbors}_0.1_0_P_{self.order}.mtx')
+
+                # self.data_P = PrecomputedAffinity(sp.csr_matrix(P_matrix),
+                #                                   normalization='local',
+                #                                   symmetrize=False)
+
+                # Calculate dEES
+                # dEES = self.calculate_EES(self.data_P.P, precomputed_Y)
+
+                # Store results
+                # dY = precomputed_Y
+            
             ## We then need to get the requested embeddings.
             if (self.DRA in ['tsne', 't-sne']):
                 dY, dEES = self.get_tSNE_embedding(X=self.data_X,
                                                    kNN_graph=self.data_kNN,
                                                    aff_mat=self.data_P)
+                print("self._seed", self._seed)
+                np.save(
+                    f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy',
+                    dY)
+                print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy")
 
             elif (self.DRA in ['umap']):
+                print("self._seed", self._seed)
                 dY, dEES = self.get_UMAP_embedding(X=self.data_X,
                                                    kNN_graph=self.data_kNN,
                                                    aff_mat=self.data_P)
+                np.save(
+                    f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy',
+                    dY)
+                print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy")
 
             if not self._keep_affmats:
                 if self.verbose >= 5:
@@ -567,6 +699,7 @@ class EMBEDR(object):
                     print(f"\nGenerating null {nNo + 1} / {self.n_null_embed}")
 
                 null_X = self.get_null(seed_offset=self._null_seed)
+                print("null seed: ", self._null_seed)
 
                 ## Generate a kNN graph
                 nKNN = self.get_kNN_graph(null_X,
@@ -1127,6 +1260,19 @@ class EMBEDR(object):
             except AttributeError:
                 affObj.P = affObj.calculate_affinities(kNN_graph, recalc=False)
         return affObj
+    
+    def calculate_dEES_from_precomputed(self, P, Y):
+        
+        # Ensure CSR format (mmread returns COO; toCsr() handles all sparse types)
+        if not sp.isspmatrix_csr(P):
+            P = sp.csr_matrix(P)
+
+        # Ensure Y is 3-D: (n_embeds, n_samples, n_components)
+        Y = np.array(Y)
+        if Y.ndim == 2:
+            Y = Y[np.newaxis, :, :]
+
+        return self.calculate_EES(P, Y)
 
     def get_tSNE_embedding(self,
                            X,
@@ -1281,7 +1427,8 @@ class EMBEDR(object):
                             **self.DRA_params)
 
         if 'initialization' in self.DRA_params:
-            if self.DRA_params['initialization'] == 'pca':
+            if isinstance(self.DRA_params.get('initialization'), str) and \
+            self.DRA_params['initialization'] == 'pca':
                 embObj.initialize_embedding(X)
         else:
             embObj.initialize_embedding(affObj)
@@ -2064,6 +2211,9 @@ class EMBEDR_sweep(object):
                  kEff_alpha=0.02,
                  # Dimensionality reduction parameters
                  n_components=2,
+                 dataset = None,
+                 order = None,
+                 load_this_seed = 0,
                  DRA='tsne',
                  DRA_params={},
                  # Embedding statistic parameters
@@ -2188,6 +2338,8 @@ class EMBEDR_sweep(object):
         ## Dimensionality reduction parameters
         self.n_components = int(n_components)
         self.DRA = DRA.lower()
+        self.dataset = dataset
+        self.order = order
         self.DRA_params = DRA_params.copy()
 
         ## Embedding statistic parameters
@@ -2212,6 +2364,7 @@ class EMBEDR_sweep(object):
         self._keep_affmats = bool(keep_affmats)
         self.rs = check_random_state(random_state)
         self._seed = self.rs.get_state()[1][0]
+        self.load_this_seed = load_this_seed
 
         ## File I/O parameters
         self.do_cache = bool(do_cache)
@@ -2278,6 +2431,9 @@ class EMBEDR_sweep(object):
 
             embObj = EMBEDR(perplexity=perp,
                             n_neighbors=knn,
+                            dataset = self.dataset,
+                            order = self.order,
+                            load_this_seed = self.load_this_seed, 
                             kNN_metric=self.kNN_metric,
                             kNN_alg=self.kNN_alg,
                             kNN_params=self.kNN_params,
@@ -2530,6 +2686,7 @@ class EMBEDR_sweep(object):
             knn = opt_hp_vals
         optObj = EMBEDR(X=self.data_X,
                         perplexity=perp,
+                        dataset = self.dataset,
                         n_neighbors=knn,
                         kNN_metric=self.kNN_metric,
                         kNN_alg=self.kNN_alg,
@@ -2724,8 +2881,3 @@ class EMBEDR_sweep(object):
                            show_cbar=show_cbar,
                            cite_EMBEDR=cite_EMBEDR,
                            **plot_kwds)
-
-
-
-
-

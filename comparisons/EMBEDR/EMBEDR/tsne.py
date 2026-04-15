@@ -99,8 +99,9 @@ class tSNE_Embed:
                  random_state=None,         ## Check method already exists
                  verbose=1):                ## Float
 
+        print(f"initialization is {initialization}, neg_grad_method is {neg_grad_method}, bh_theta is {bh_theta}")
         self.n_components = int(n_components)
-
+        
         if isinstance(initialization, np.ndarray):
             self.initialization = check_array(initialization,
                                               accept_sparse=False,

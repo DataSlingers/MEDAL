@@ -159,7 +159,7 @@ get_param_grid <- function(key) {
 ## --------------------------
 ## 4) Runner
 ## --------------------------
-run_scdeed_all_data <- function(path, name, K) {
+run_scdeed_all_data <- function(path, name, K, load_this_seed) {
   message("==== Dataset: ", name, " ====")
   
   ## Read
@@ -235,8 +235,8 @@ run_scdeed_all_data <- function(path, name, K) {
   grid  <- get_param_grid(key)
   
   ## Output dirs
-  out_tsne <- "results_scdeed_tsne"
-  out_umap <- "results_scdeed_umap"
+  out_tsne <- paste0("results_scdeed_tsne/seed", load_this_seed)
+  out_umap <- paste0("results_scdeed_umap/seed", load_this_seed)
   dir.create(out_tsne, showWarnings = FALSE, recursive = TRUE)
   dir.create(out_umap, showWarnings = FALSE, recursive = TRUE)
                  
@@ -248,13 +248,13 @@ run_scdeed_all_data <- function(path, name, K) {
   run_and_save_tsne <- function(pca_mat, perplexity, save) {
     tsne <- openTSNE$TSNE(
       perplexity   = as.integer(perplexity),
-      random_state = 0L,
-      initialization = "pca"
+      random_state = as.integer(load_this_seed),
+      initialization = "random"
     )
     embed <- reticulate::py_to_r(tsne$fit(pca_mat))
     if (save){
         np$save(
-          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", sprintf("%s_tsne_%d_0_train_pc%d.npy", name, as.integer(perplexity), K)),
+          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", sprintf("%s_tsne_%d_%d_train_pc%d.npy", name, as.integer(perplexity), load_this_seed, K)),
           reticulate::r_to_py(embed)
         )
     }
@@ -266,13 +266,13 @@ run_scdeed_all_data <- function(path, name, K) {
         n_neighbors  = as.integer(n_neighbors),
         min_dist     = min_dist,
         metric       = "euclidean",
-        random_state = 0L
+        random_state = as.integer(load_this_seed)
       )
       embed <- reticulate::py_to_r(reducer$fit_transform(pca_mat))
       if (save) {
         np$save(
           file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data",
-                    sprintf("%s_umap_%d_%.1f_0_train_pc%d.npy", name, as.integer(n_neighbors), min_dist, K)),
+                    sprintf("%s_umap_%d_%.1f_%d_train_pc%d.npy", name, as.integer(n_neighbors), min_dist,load_this_seed, K)),
           reticulate::r_to_py(embed)
         )
       }
@@ -280,28 +280,32 @@ run_scdeed_all_data <- function(path, name, K) {
     }
   
   ## --- t-SNE ---
-#   cat("Starting scDEED t-SNE...\n")
-#   start <- Sys.time()
-#   n_cells <- ncol(data)
-#   max_perp <- floor((n_cells - 1) / 3)
-#   cat("filtered grid:", grid$tsne_perplexity[grid$tsne_perplexity < floor((ncol(data)-1)/3)], "\n")
-#   result_tsne <- scDEED(
-#     data,
-#     K                     = K,
-#     reduction.method      = "tsne",
-#     perplexity            = grid$tsne_perplexity[grid$tsne_perplexity < max_perp],
-#     check_duplicates      = FALSE,
-#     embedding_fn = function(perplexity) {
-#       run_and_save_tsne(pca_embed, perplexity, save = TRUE)
-#     },
-#     permuted_embedding_fn = function(seurat_obj, perplexity) {
-#       pca_mat <- seurat_obj@reductions$pca@cell.embeddings[, 1:K]
-#       run_and_save_tsne(pca_mat, perplexity, save = FALSE)
-#     }
-#   )
-#   end <- Sys.time()
-#   time_tsne <- end - start
-#   print(time_tsne)
+  cat("Starting scDEED t-SNE...\n")
+  start <- Sys.time()
+  n_cells <- ncol(data)
+  max_perp <- floor((n_cells - 1) / 3)
+  cat("filtered grid:", grid$tsne_perplexity[grid$tsne_perplexity < floor((ncol(data)-1)/3)], "\n")
+  result_tsne <- scDEED(
+    data,
+    K                     = K,
+    reduction.method      = "tsne",
+    perplexity            = grid$tsne_perplexity[grid$tsne_perplexity < max_perp],
+    check_duplicates      = FALSE,
+    embedding_fn = function(perplexity) {
+      run_and_save_tsne(pca_embed, perplexity, save = TRUE)
+    },
+    permuted_embedding_fn = function(seurat_obj, perplexity) {
+      pca_mat <- seurat_obj@reductions$pca@cell.embeddings[, 1:K]
+      run_and_save_tsne(pca_mat, perplexity, save = FALSE)
+    }
+  )
+  end <- Sys.time()
+  time_tsne <- end - start
+  print(time_tsne)
+                 
+  saveRDS(result_tsne, file.path(out_tsne, paste0("tsne_best_", name, ".Rds")))
+  saveRDS(data.frame(time = time_tsne, method = "tSNE"),
+          file.path(out_tsne, paste0("timeelapsed_", name, ".Rds")))
   
   ## --- UMAP ---
   cat("Starting scDEED UMAP...\n")
@@ -326,10 +330,7 @@ run_scdeed_all_data <- function(path, name, K) {
   time_umap <- end - start
   print(time_umap)
   
-  ## Save (separate folders)
-#   saveRDS(result_tsne, file.path(out_tsne, paste0("tsne_best_", name, ".Rds")))
-#   saveRDS(data.frame(time = time_tsne, method = "tSNE"),
-#           file.path(out_tsne, paste0("timeelapsed_", name, ".Rds")))
+  # Save (separate folders)
   
   saveRDS(result_umap, file.path(out_umap, paste0("umap_best_", name, ".Rds")))
   saveRDS(data.frame(time = time_umap, method = "UMAP"),
@@ -344,9 +345,12 @@ run_scdeed_all_data <- function(path, name, K) {
 datasets <- list.files("data_tmp/", full.names = TRUE)
 
 ## If you want to exclude MNIST + Astro, uncomment:
-datasets <- datasets[!grepl("astro|tasic|hydra", datasets, ignore.case = TRUE)]
+datasets <- datasets[!grepl("mnist|tasic|hydra", datasets, ignore.case = TRUE)]
 
-for (dataset in datasets) {
-  name <- tools::file_path_sans_ext(basename(dataset))
-  run_scdeed_all_data(path = dataset, name = name, K=6)
+for (lts in c(2,10)){
+    for (dataset in datasets) {
+      name <- tools::file_path_sans_ext(basename(dataset))
+      run_scdeed_all_data(path = dataset, name = name, K=5, load_this_seed = lts)
+      
+    }
 }

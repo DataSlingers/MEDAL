@@ -89,7 +89,7 @@ Permuted <- function(pbmc,
 
   setTxtProgressBar(pb, 0.4)
 
-  set.seed(1000)
+  set.seed(999999)
   n_features <- dim(X)[1]
   curr_pb    <- 0.4
 
