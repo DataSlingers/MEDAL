@@ -1,6 +1,8 @@
 # run teacher evaluation as a grid search on ray
 from ray import tune
-from medal.eval_utils import load_and_split, get_teacher_embeddings
+from medal.eval_utils import load_and_split
+from medal.teacher import get_teacher_embeddings
+from medal._paths import teacher_embedding_path, teacher_norm_path, _teacher_suffix
 from sklearn.model_selection import train_test_split
 import os
 import numpy as np
@@ -90,59 +92,22 @@ def precompute_teacher_embeddings(tc, config, load_this_seed=None):
     dataset = config['dataset_name']
     n_components = tc.get('n_components', 2)
 
-    # Build the path suffix and embedding kwargs per teacher
-    TEACHER_CONFIGS = {
-        "umap": {
-            "path_parts": lambda: (
-                f"{teacher}_{tc['t_n_neighbors']}_{tc['min_dist']}"
-                if n_components == 2
-                else f"{teacher}{n_components}_{tc['t_n_neighbors']}_{tc['min_dist']}"
-            ),
-            "kwargs": {"n_neighbors": tc.get("t_n_neighbors"), "min_dist": tc.get("min_dist"), "random_state": seed},
-        },
-        "pca": {
-            "path_parts": lambda: f"{teacher}{n_components}",
-            "kwargs": {"random_state": seed},
-        },
-        "isomap": {
-            "path_parts": lambda: f"{teacher}_{tc['t_n_neighbors']}",
-            "kwargs": {"n_neighbors": tc.get("t_n_neighbors")},
-        },
-        "tsne": {
-            "path_parts": lambda: (
-                f"{teacher}_{tc['perplexity']}"
-                if n_components == 2
-                else f"{teacher}{n_components}_{tc['perplexity']}"
-            ),
-            "kwargs": {"perplexity": tc.get("perplexity"), "learning_rate": tc.get("learning_rate", "auto"), "random_state": seed},
-        },
-        "spectral": {
-            "path_parts": lambda: f"{teacher}{n_components}_{tc['t_n_neighbors']}",
-            "kwargs": {"n_neighbors": tc.get("t_n_neighbors"), "random_state": seed},
-        },
-        "phate": {
-            "path_parts": lambda: f"{teacher}{n_components}_{tc['t_n_neighbors']}",
-            "kwargs": {"knn": tc.get("t_n_neighbors"), "random_state": seed},
-        },
-    }
-
-    if teacher not in TEACHER_CONFIGS:
-        raise ValueError(f"Unknown teacher: {teacher!r}")
-
-    cfg = TEACHER_CONFIGS[teacher]
-    path_suffix = cfg["path_parts"]()
-    model_path = Path(PATH_PREFIX) / f"embeddings2/{dataset}_{path_suffix}_{seed}_train.npy"
+    # Normalise legacy key names so _paths helpers can find them
+    tc_norm = _normalise_tc_keys(tc)
+    model_path = Path(PATH_PREFIX) / "embeddings2" / (
+        f"{dataset}_{_teacher_suffix(teacher, tc_norm)}_{seed}_train.npy"
+    )
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     save_teacher_model = config.get("save_teacher_model", False)
-    extra_kwargs = {
-        "save_teacher_model": save_teacher_model,
-        "save_teacher_path": model_path.with_suffix(".pkl") if save_teacher_model else None,
-    }
+    extra_kwargs = {k: v for k, v in _teacher_embed_kwargs(teacher, tc, seed).items()}
+    if save_teacher_model:
+        extra_kwargs["save_teacher_model"] = True
+        extra_kwargs["save_teacher_path"] = model_path.with_suffix(".pkl")
 
     try:
         with open(model_path, "xb") as f:
-            Z_tr = get_teacher_embeddings(teacher, X_tr, n_components=n_components, **cfg["kwargs"], **extra_kwargs)
+            Z_tr = get_teacher_embeddings(teacher, X_tr, n_components=n_components, **extra_kwargs)
             np.save(f, Z_tr)
         print(f"Saved: {model_path}")
     except FileExistsError:
@@ -162,31 +127,11 @@ def compare_teacher(config):
     print(f"Size of train set: {X_tr.shape[0]}, size of validation set {X_te.shape[0]}")
 
     load_this_seed = config["load_this_seed"] if config["load_this_seed"] is not None else 0
-    
-    if tc['teacher'] == "umap":
-        if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
-            model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
-        else:
-            model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{tc['min_dist']}_{load_this_seed}_train.npy"
-    
-    elif tc['teacher'] == "pca":
-        model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{load_this_seed}_train.npy"
-    
-    elif tc['teacher'] == "isomap":
-        model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
-    
-    
-    elif tc['teacher'] == "tsne":
-        if not ('n_components' in tc) or ('n_components' in tc and tc['n_components'] == 2):
-            model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}_{tc['perplexity']}_{load_this_seed}_train.npy"
-        else:
-            model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['perplexity']}_{load_this_seed}_train.npy"
-    
-    
-    elif tc['teacher'] == "spectral":
-        model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
-    elif tc['teacher'] == "phate":
-        model_path = Path(PATH_PREFIX) / f"embeddings2/{config['dataset_name']}_{tc['teacher']}{tc['n_components']}_{tc['t_n_neighbors']}_{load_this_seed}_train.npy"
+
+    tc_norm = _normalise_tc_keys(tc)
+    model_path = Path(PATH_PREFIX) / "embeddings2" / (
+        f"{config['dataset_name']}_{_teacher_suffix(tc['teacher'], tc_norm)}_{load_this_seed}_train.npy"
+    )
 
     print("loading.... ", model_path)
     Z_tr = np.load(model_path)
@@ -314,3 +259,34 @@ if __name__ == "__main__":
         )
         elapsed = time.time() - start
         print(f"Total experiment time: {elapsed:.1f}s ({elapsed/60:.1f} min)")
+
+
+# ------------------------------------------------------------------
+# Internal helpers used by both precompute_teacher_embeddings and
+# compare_teacher to avoid path-building duplication.
+# ------------------------------------------------------------------
+
+def _normalise_tc_keys(tc: dict) -> dict:
+    """
+    Translate legacy key names (t_n_neighbors -> n_neighbors) so that
+    _paths._teacher_suffix() can find the right values.
+    """
+    mapping = {"t_n_neighbors": "n_neighbors"}
+    return {mapping.get(k, k): v for k, v in tc.items()}
+
+
+def _teacher_embed_kwargs(teacher: str, tc: dict, seed: int) -> dict:
+    """Build the kwargs dict to pass to get_teacher_embeddings."""
+    if teacher == "umap":
+        return {"n_neighbors": tc.get("t_n_neighbors"), "min_dist": tc.get("min_dist"), "random_state": seed}
+    if teacher == "pca":
+        return {"random_state": seed}
+    if teacher == "isomap":
+        return {"n_neighbors": tc.get("t_n_neighbors")}
+    if teacher == "tsne":
+        return {"perplexity": tc.get("perplexity"), "learning_rate": tc.get("learning_rate", "auto"), "random_state": seed}
+    if teacher == "spectral":
+        return {"n_neighbors": tc.get("t_n_neighbors"), "random_state": seed}
+    if teacher == "phate":
+        return {"n_neighbors": tc.get("t_n_neighbors"), "random_state": seed}
+    raise ValueError(f"Unknown teacher: {teacher!r}")
