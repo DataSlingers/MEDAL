@@ -8,7 +8,8 @@ import os
 import numpy as np
 from pathlib import Path
 import torch.nn as nn
-from medal.core import MEDAL, GlobalEmbeddingNormalizer
+from medal.model import MEDAL
+from medal.normalizer import GlobalEmbeddingNormalizer
 from medal.dictionaries import TEACHER_SWEEP_SPECS, INIT_CONFIG, RANK_SWEEP_SPECS, PATH_PREFIX, TEACHER_COMPARISON
 import itertools, time
 import pickle
