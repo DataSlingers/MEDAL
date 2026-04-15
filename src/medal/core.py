@@ -126,7 +126,6 @@ class MEDAL(BaseEstimator, TransformerMixin):
         self.criterion = criterion().to(self.device)
 
     def fit(self, X, teacher_Z=None, verbose=True,
-            phase=None, pretrained_path=None,
             target_bands=None, stability_window=10,
             epsilon_distill=0.1, epsilon_recon=0.005,
             patience=3, return_on_stable=False,
@@ -135,8 +134,6 @@ class MEDAL(BaseEstimator, TransformerMixin):
             print_tag=False
             ):
         '''
-        phase:              "pretrain" only reconstruction. Save weights to pretrained_path, 
-                            "finetune" load weights from pretrained_path before starting, then train with distill loss.
         target_bands:       list of (min, max) tuples for distill loss bands to target
         stability_window:   number of epochs to consider for stability
         patience:           number of consecutive stable checks to confirm stability
@@ -147,14 +144,10 @@ class MEDAL(BaseEstimator, TransformerMixin):
         '''
 
         def _report_or_print(metrics):
-            if print_tag or phase == "pretrain":
+            if print_tag:
                 print(metrics)
-            else: 
+            else:
                 tune.report(metrics)
-
-        if phase == "finetune" and pretrained_path:
-            ref_state = torch.load(pretrained_path, map_location="cpu")["model"]
-            self.model.load_state_dict(ref_state, strict=False)
 
         X = torch.tensor(X, dtype=torch.float32).to(self.device)
         
@@ -187,7 +180,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
                 x_rec, z = self.model(x)
                 recon_loss = self.criterion(x_rec, x) 
                 
-                if phase == "pretrain" or teacher_z is None: # during pretraining, no distill loss
+                if teacher_z is None:
                     loss = recon_loss
                     distill_loss = torch.tensor(0.0, device=self.device)
                 else:
@@ -238,14 +231,6 @@ class MEDAL(BaseEstimator, TransformerMixin):
             state = {"model": self._state_dict_cpu()}
             torch.save(state, ckpt_path)
             print(f"Saved model to {ckpt_path}")
-        
-        if phase == "pretrain" and pretrained_path is not None:
-            pretrain_ckpt_path = Path(pretrained_path) / (
-                f"{prefix}_pretrain.pt" if prefix else "pretrain.pt"
-            )
-            pretrain_ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"model":self._state_dict_cpu()}, pretrain_ckpt_path)
-            return pretrain_ckpt_path
         
         return self
 

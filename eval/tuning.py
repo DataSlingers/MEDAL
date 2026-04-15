@@ -14,7 +14,6 @@ def architecture_analysis_grid(dataset, mode):
         "model_variant": "medal",
         "dataset_name": dataset,
         "verbose": False,
-        "pretrained_path": None,
         "retrain_teacher": False,
         "save_dir": None,
         "distill_bands": None,

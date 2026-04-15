@@ -258,9 +258,8 @@ def compare_teacher(config):
     prefix = f'{config["dataset_name"]}/{prefix}'
 
     distill_bands = config["distill_bands"] if "distill_bands" in config else [(1e-12, 9e-6)]
-    student.fit(X_tr, Z_tr, config['verbose'], 
-                phase="finetune", pretrained_path=config['pretrained_path'],
-                target_bands=distill_bands, 
+    student.fit(X_tr, Z_tr, config['verbose'],
+                target_bands=distill_bands,
                 stability_window=20, 
                 epsilon_distill=1e-7, 
                 epsilon_recon=1e-3, # 1e-2 for macaque, others 1e-3 
@@ -282,7 +281,6 @@ if __name__ == "__main__":
     for dataset_name in dataset_names:
         config = get_dataset_config(dataset_name, variant,
                                     verbose= False,
-                                    pretrained_path= None,
                                     retrain_teacher= False,
                                     save_dir= PATH_PREFIX + f'/tmp_results/normalize',
                                    ).copy()
