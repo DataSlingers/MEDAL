@@ -10,9 +10,9 @@ from sklearn.decomposition import PCA
 import pandas as pd, numpy as np
 from pathlib import Path
 import pickle
-#import scanpy as sc
+import phate
 
-def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scaling_input = None):
+def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scaling_input = None, id_set = None):
     X, X_test, labs_train, labs_test = None, None, None, None
     needs_scaling = False
     if dataset_name == "wine":
@@ -48,7 +48,7 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         X = pd.read_csv('/share/ctn/users/bnc2119/drd_data/data_mean_imputed_with_ids_all.csv', index_col=0).to_numpy()
         labs = pd.read_csv('/share/ctn/users/bnc2119/drd_data/cluster_labels_final.csv', index_col=0).to_numpy().flatten()
         needs_scaling = True
-    elif dataset_name == "cortical":
+    elif dataset_name == "tasic":
         X = np.load('/share/ctn/users/bnc2119/drd_data/preprocessed-data.npy')
         labs = np.load('/share/ctn/users/bnc2119/drd_data/tasic_cluster_labels.npy', allow_pickle = True)
     elif dataset_name == "macaque":
@@ -65,6 +65,10 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
         else:
             X_train, labs_train = X, labs
 
+        if id_set is not None:
+            assert len(id_set) <= X_train.shape[0], "id_set needs to be smaller than number of samples"
+            X_train = X_train[id_set]
+            
         if needs_scaling:
             scaler = StandardScaler()
             X_train = scaler.fit_transform(X_train)
@@ -74,6 +78,10 @@ def load_and_split(dataset_name, test_size=0.5, seed=0, labels=False, needs_scal
     if test_size > 0:
         X_train, X_test = train_test_split(X, test_size=test_size, random_state=seed)
     else: X_train = X
+    
+    if id_set is not None:
+        assert len(id_set) <= X_train.shape[0], "id_set needs to be smaller than number of samples"
+        X_train = X_train[id_set]
 
     if needs_scaling:
         scaler = StandardScaler()
@@ -115,13 +123,16 @@ def get_teacher_embeddings(method, X_train, **teacher_kwargs):
         model = PCA(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
     elif method == "tsne":
-        model = TSNE(**teacher_kwargs_cp, negative_gradient_method="fft")
-        Z_train = model.fit_transform(X_train)
+        model = TSNE(**teacher_kwargs_cp, negative_gradient_method="fft").fit(X_train)
+        Z_train = model.transform(X_train)
     elif method == "isomap":
         model = Isomap(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
     elif method == "spectral":
         model = SpectralEmbedding(**teacher_kwargs_cp)
+        Z_train = model.fit_transform(X_train)
+    elif method == "phate":
+        model = phate.PHATE(**teacher_kwargs_cp)
         Z_train = model.fit_transform(X_train)
     else:
         raise ValueError(f"Unknown teacher method {method}")

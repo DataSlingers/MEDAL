@@ -7,6 +7,7 @@ from ray import tune
 from pathlib import Path
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn.functional as F
+import pickle
     
 class AutoEncoder(nn.Module):
     def __init__(self, input_dim, latent_dim=10, hidden_dims=(128, 128),
@@ -194,6 +195,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
                         lambda_d = self.lambda_d * (epoch / self.warmup)
                     else:
                         lambda_d = self.lambda_d
+                    
                     distill_loss = self.criterion(z, teacher_z)
                     loss = recon_loss + lambda_d * distill_loss
                 
@@ -274,7 +276,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
                     ckpt_path = base / f"band{idx}.pt"
                     state = {"model": self._state_dict_cpu()}
                     torch.save(state, ckpt_path)
-                    print(f"Saved model to {ckpt_path}, distill loss: {avg_distill:.6f}")
+                    print(f"Saved model to {ckpt_path}, distill loss: {avg_distill:.6f}, epoch {epoch}")
 
                     target_bands_saved[idx] = 1
                 ######
@@ -312,3 +314,34 @@ class MEDAL(BaseEstimator, TransformerMixin):
             self.stable_counter = 0 # Reset if not in band or not enough history
 
         return early_stop_flag
+
+class GlobalEmbeddingNormalizer:
+    def __init__(self, mean_=None, scale_=None, eps=1e-8):
+        self.mean_ = mean_
+        self.scale_ = scale_
+        self.eps = eps
+
+    def fit(self, Z):
+        Z = np.asarray(Z, dtype=np.float32)
+        self.mean_ = Z.mean(axis=0, keepdims=True)
+        Zc = Z - self.mean_
+        self.scale_ = np.sqrt(np.mean(np.sum(Zc**2, axis=1)))
+        self.scale_ = max(float(self.scale_), self.eps)
+        return self
+
+    def transform(self, Z):
+        Z = np.asarray(Z, dtype=np.float32)
+        return (Z - self.mean_) / self.scale_
+
+    def inverse_transform(self, Z):
+        Z = np.asarray(Z, dtype=np.float32)
+        return Z * self.scale_ + self.mean_
+    
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as f:
+            d = pickle.load(f)
+        return cls(
+            mean_=np.asarray(d["mean"], dtype=np.float32),
+            scale_=float(d["scale"]),
+        )

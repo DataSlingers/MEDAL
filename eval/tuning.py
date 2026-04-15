@@ -27,13 +27,22 @@ def architecture_analysis_grid(dataset, mode):
         BASE_INIT_CONFIG["bottleneck_activation"] = tune.grid_search(["ReLU", "SELU", None])
     elif mode == "depth":
         if dataset == "mnist":
-            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[2378] * 2, [1000] * 4, [867] * 6, [734] * 8])
+            BASE_INIT_CONFIG["lambda_d"] = 10
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[512] * 2, [358] * 4, [294] * 6, [257] * 8])
         elif dataset == "gene_cancer":
             BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[5734] * 2, [1000] * 4, [1895] * 6, [1563] * 8])
         elif dataset == "darmanis":
             BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[1809] * 2, [1000] * 4, [830] * 6, [682] * 8])
+        elif dataset == "hydra":
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[1347] * 2, [256, 1024, 1024, 1024], [657] * 6, [562] * 8])
+        elif dataset == "astro":
+            BASE_INIT_CONFIG["lambda_d"] = 100
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[781] * 4, [512] * 4, [409] * 12, [350] * 16])
+        elif dataset == "macaque":
+            BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[512] * 4, [512] * 6, [512] * 8, [512] * 10])
     elif mode == "size":
-        BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[200] *3, [500] * 3, [1000] * 3, [5000]*3])
+        BASE_INIT_CONFIG["lambda_d"] = 10
+        BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[50] * 3, [200] *3, [500] * 3, [1000] * 3])
     elif mode == "order":
         BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([
              [2000, 800, 400, 200], 
@@ -50,6 +59,8 @@ def architecture_analysis_grid(dataset, mode):
             BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[5734] * 2, [1000] * 4, [1563] * 8, [743] * 16])
         elif dataset == "darmanis":
             BASE_INIT_CONFIG["hidden_dims"] = tune.grid_search([[1809] * 2, [1000] * 4, [682] * 8, [467] * 16])
+    elif mode == "lambda_d":
+        BASE_INIT_CONFIG["lambda_d"] = tune.grid_search([1, 5, 10, 50, 100, 500])
     else:
         raise ValueError(f"Unknown mode: {mode}")
     
@@ -69,13 +80,21 @@ TEACHER_SPECS = {
 	"pca": {"n_components": 2}
     },
     "darmanis": {
-	"umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
-	"spectral": {"t_n_neighbors": 5, "n_components": 2},
-        "tsne": {"perplexity": 5, "learning_rate": "auto", "n_components": 2},
-	"pca": {"n_components": 2}
+        "umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
+        "spectral": {"t_n_neighbors": 5, "n_components": 2},
+            "tsne": {"perplexity": 5, "learning_rate": "auto", "n_components": 2},
+        "pca": {"n_components": 2}
+    },
+    "hydra": {
+        "umap": {"t_n_neighbors": 5, "min_dist": 0.1, "n_components": 2},
+    },
+    "astro": {
+        "umap": {"t_n_neighbors": 499, "min_dist": 0.1, "n_components": 2},
+    },
+    "macaque": {
+        "tsne": {"perplexity": 499, "learning_rate": "auto", "n_components": 2},
     }
 }
-
 
 
 def build_teacher_grid(dataset_name, teacher_name):
@@ -93,12 +112,11 @@ def build_teacher_grid(dataset_name, teacher_name):
     return params
 
 
-MODE = "bnorm"
-MODE = "size"
+MODE = "depth"
 DEVICE = "cuda"
-dataset_name = ["darmanis"]
-teacher_name = "pca" # replace with "umap", "isomap", "spectral", "pca", ...
-PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data" #"/shared/share_mala/irchang/drd"
+dataset_name = ["macaque"]
+teacher_name = "tsne" # replace with "umap", "isomap", "spectral", "pca", ...
+PATH_PREFIX = "/share/ctn/users/bnc2119/drd_data" 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7" 
 
 ahbs = AsyncHyperBandScheduler(
@@ -117,15 +135,16 @@ for data_name in dataset_name:
     config = architecture_analysis_grid(data_name, mode=MODE)
     
     teacher_config = build_teacher_grid(data_name, teacher_name)
-    precompute_teacher_embeddings(teacher_config, config)
+    precompute_teacher_embeddings(teacher_config, config, load_this_seed = 0)
     config.update({
         "teacher_config": teacher_config,
+        "load_this_seed": 0
     })
 
     analysis = tune.run(
         compare_teacher,
         name="drd_asynchyperband_distill_optimization",
-        num_samples=10, 
+        num_samples=1, #10, 
         resources_per_trial={"cpu": 4, "gpu": 1},  # Adjusted GPU allocation
         config= config,
         verbose=1,

@@ -9,7 +9,7 @@ DISTILL_BANDS_DICT = {
     #[(1e-1, 1e8), (1e-2, 1e-1), (1e-4, 1e-2), (1e-6,1e-4), (9e-8, 1e-6), (1e-12, 9e-8)],
     "pbmc": [(1e-12, 9e-6)],
     "astro": [(1e-12, 9e-6)],
-    "cortical": [(1e-12, 9e-6)],
+    "tasic": [(1e-12, 9e-6)],
     "macaque": [(1e-12, 9e-6)],
 }
 
@@ -22,26 +22,40 @@ TEACHER_SWEEP_SPECS = {
             "min_dist": [0.1], 
             "n_components": [2]},
         "tsne": {
-            "perplexity": [5, 11,  27, 62, 146,  341, 793, 1846, 4297], 
+            "perplexity": [5, 11,  27, 62, 146,  341, 793, 1846], 
             "n_components": [2]},
         "spectral": {
             "n_components": [2],
             "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
         "pca": {"n_components": [2]},
+        "phate": {"n_components": [2],
+                 "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
     },
     "hydra": {
-        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)), "min_dist": [0.1]},
-        "tsne": {"perplexity": np.unique(np.logspace(np.log10(5), np.log10(5000), 10).astype(int))},
-        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(200), 15).astype(int))},
+        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)), "min_dist": [0.1],
+                "n_components": [2]},
+        "tsne": {"perplexity": np.unique(np.logspace(np.log10(5), np.log10(5000), 10).astype(int)),
+                "n_components": [2]},
+        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(200), 15).astype(int)),
+                    "n_components": [2]},
         "pca": {"n_components": [2]},
     },
-    "cortical": {
-        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)), "min_dist": [0.1]},
-        "tsne": {"perplexity": np.unique(np.logspace(np.log10(5), np.log10(6000), 10).astype(int))},
-        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(200), 15).astype(int))},
+    "tasic": {
+        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)), "min_dist": [0.1],
+                "n_components": [2]},
+        "tsne": {"perplexity": np.unique(np.logspace(np.log10(5), np.log10(6000), 10).astype(int)),
+                "n_components": [2]},
+        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(200), 15).astype(int)),
+                    "n_components": [2]},
         "pca": {"n_components": [2]},
     },
     "astro": {
+        "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "min_dist": [0.1], "n_components": [2]},
+        "tsne": {"perplexity": np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int)), "n_components": [2]},
+        "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "n_components": [2]},
+        "pca": {"n_components": [2]},
+    },
+    "macaque": {
         "umap": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "min_dist": [0.1], "n_components": [2]},
         "tsne": {"perplexity": np.unique(np.logspace(np.log10(3), np.log10(500), 15).astype(int)), "n_components": [2]},
         "spectral": {"t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), "n_components": [2]},
@@ -63,6 +77,51 @@ RANK_SWEEP_SPECS = {
         "spectral": {"t_n_neighbors": [5],
                      "n_components": np.unique(np.logspace(np.log10(2), np.log10(100), 10).astype(int))},
         "pca": {"n_components": np.unique(np.logspace(np.log10(2), np.log10(100), 10).astype(int))},
+    },
+}
+
+TEACHER_COMPARISON = {
+    "mnist": {
+        "umap": {
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "min_dist": [0.1], 
+            "n_components": [2]},
+        "tsne": {
+            "perplexity": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "n_components": [2]},
+        "spectral": {
+            "n_components": [2],
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+        "phate": {"n_components": [2],
+                 "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+    },
+    "hydra": {
+        "umap": {
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "min_dist": [0.1], 
+            "n_components": [2]},
+        "tsne": {
+            "perplexity": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "n_components": [2]},
+        "spectral": {
+            "n_components": [2],
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+        "phate": {"n_components": [2],
+                 "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+    },
+    "tasic": {
+        "umap": {
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "min_dist": [0.1], 
+            "n_components": [2]},
+        "tsne": {
+            "perplexity": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int)), 
+            "n_components": [2]},
+        "spectral": {
+            "n_components": [2],
+            "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
+        "phate": {"n_components": [2],
+                 "t_n_neighbors": np.unique(np.logspace(np.log10(5), np.log10(500), 15).astype(int))},
     },
 }
 
@@ -95,9 +154,9 @@ INIT_CONFIG = {
     },
     "mnist": { 
         "lr": 1e-3, #1e-4 (vanillaAE), #1e-3 (ROP), # 2e-5, #0.000269 (tsne),	
-        "lambda_d": 10000, # 3000
+        "lambda_d": 3000, # 3000
         "eta_min": 1e-7, #1e-5, # 7.256237e-10, 1e-10(spectral)
-        "hidden_dims": [1000, 1000, 1000, 1000, 1000], 
+        "hidden_dims": [512, 512, 512, 512], 
         "activation": "SELU",
         "bottleneck_activation": None,
         "max_epochs":5000, 
@@ -124,13 +183,13 @@ INIT_CONFIG = {
         "t_patience": 20,
     },
     "hydra":{
-        "lr": 0.005, #0.0005 (old lr),# 0.005 (new lr), 
+        "lr": 0.005,# 0.0005 
         "lambda_d": 30000, #30000,
         # "lambda_d": 0,
         # "eta_min1":  9.10708e-06, 
         # "eta_min2": 8.51602e-10, 
         "eta_min":  1e-07, 
-        "hidden_dims": [309, 1792, 1792, 1792],
+        "hidden_dims": [256, 1024, 1024, 1024], #[309, 1792, 1792, 1792],
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 20000,
@@ -145,7 +204,7 @@ INIT_CONFIG = {
         "lr": 0.0005, #0.00139911,
         "lambda_d": 10000,
         "eta_min": 1e-07, #3.55767e-07,
-        "hidden_dims": [700] * 15,
+        "hidden_dims": [512] * 4,
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 60000,
@@ -156,11 +215,11 @@ INIT_CONFIG = {
         "t_factor": 0.9,
         "use_batchnorm": False
     },
-    "cortical":{
+    "tasic":{
         "lr": 0.00268681,
-        "lambda_d": 50000, #30000,
+        "lambda_d": 10000, 
         "eta_min": 1e-7,
-        "hidden_dims": [309, 1792, 1792, 1792],
+        "hidden_dims": [256, 1024, 1024, 1024],
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 6000,
@@ -172,10 +231,10 @@ INIT_CONFIG = {
         "use_batchnorm": True
     },
     "macaque":{       
-        "lr":0.000341178, 
+        "lr":0.0005, 
         "lambda_d": 10000, # 50000, 200000
         "eta_min": 1e-7, #6.24882e-06 (tsne), 1e-7 (umap)
-        "hidden_dims": [700] * 15,
+        "hidden_dims": [512] * 4,
         "activation": "SELU", 
         "bottleneck_activation": None,
         'max_epochs': 25000,
@@ -183,7 +242,7 @@ INIT_CONFIG = {
         "batch_size": 1024,
         "test_size":0.2,
         "t_patience":70,
-        "t_factor": 0.9,
-        "use_batchnorm": False
+        "t_factor": 0.95,
+        "use_batchnorm": True
     },
 }
