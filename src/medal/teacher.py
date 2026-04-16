@@ -85,6 +85,7 @@ def get_teacher_embeddings(
     method: str,
     X: np.ndarray,
     n_components: int = 2,
+    random_state: int = 0,
     save_path: Optional[str | Path] = None,
     **teacher_kwargs,
 ) -> np.ndarray:
@@ -99,10 +100,15 @@ def get_teacher_embeddings(
         Input data.
     n_components : int
         Embedding dimensionality.
+    random_state : int
+        Random seed for reproducible teacher embeddings (default 0).
+        Forwarded to teachers that support it; ignored for isomap/phate.
     save_path : str or Path, optional
         If given, pickle the fitted teacher model to this path.
     **teacher_kwargs
         Extra keyword arguments forwarded to the teacher algorithm.
+        These take precedence over ``random_state`` if ``random_state``
+        is already present in ``teacher_kwargs``.
 
     Returns
     -------
@@ -116,36 +122,43 @@ def get_teacher_embeddings(
 
     if method == "umap":
         import umap as _umap
+        kw.setdefault("random_state", random_state)
         model = _umap.UMAP(**kw)
         Z = model.fit_transform(X)
 
     elif method == "pca":
         from sklearn.decomposition import PCA
+        kw.setdefault("random_state", random_state)
         model = PCA(**kw)
         Z = model.fit_transform(X)
 
     elif method == "tsne":
         from openTSNE import TSNE
         kw.pop("n_components")          # openTSNE uses n_components differently
+        kw.setdefault("random_state", random_state)
         model = TSNE(n_components=n_components, negative_gradient_method="fft", **kw).fit(X)
         Z = model.transform(X)
 
     elif method == "isomap":
         from sklearn.manifold import Isomap
+        # Isomap does not support random_state
         model = Isomap(**kw)
         Z = model.fit_transform(X)
 
     elif method == "spectral":
         from sklearn.manifold import SpectralEmbedding
+        kw.setdefault("random_state", random_state)
         model = SpectralEmbedding(**kw)
         Z = model.fit_transform(X)
 
     elif method == "phate":
         import phate as _phate
-        # phate uses knn instead of n_neighbors
+        # phate uses knn instead of n_neighbors; does not use random_state
+        # n_components is a constructor argument, not a fit_transform argument
         if "n_neighbors" in kw:
             kw["knn"] = kw.pop("n_neighbors")
-        model = _phate.PHATE(**kw)
+        kw.pop("n_components", None)
+        model = _phate.PHATE(n_components=n_components, **kw)
         Z = model.fit_transform(X)
 
     else:
