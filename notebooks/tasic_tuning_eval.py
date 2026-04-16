@@ -1,7 +1,7 @@
 from structure_preservation_metrics import evaluate_embedding
-from medal.eval_utils import load_and_split, get_teacher_embeddings
+from eval.data import load_and_split
+from medal.teacher import get_teacher_embeddings
 from sklearn.model_selection import train_test_split
-from medal.core import AutoEncoder
 import numpy as np, pandas as pd
 from pathlib import Path
 import torch
@@ -24,44 +24,9 @@ pcs_best = {
     "tsne": {0: 5, },
 }
 medal_best = {
-    "tsne": {0: 6000,},
-    "umap": {0: 5,  }
+    "tsne": {0: 53,},
+    "umap": {0: 9,  }
 }
-
-def load_trained_ae(ckpt_path, input_dim, hidden_dims,activation=torch.nn.SELU, latent_dim=2, batchnorm=False):
-    import sys, os
-    old_stdout = sys.stdout
-    sys.stdout = open(os.devnull, "w")
-    model = AutoEncoder(
-        input_dim=input_dim,
-        latent_dim=latent_dim,
-        hidden_dims=hidden_dims,
-        activation=activation,            
-        bottleneck_activation=None,
-        use_batchnorm = batchnorm
-    )
-    sys.stdout = old_stdout
-
-    sd = torch.load(ckpt_path, map_location="cpu")
-
-    # unwrap to the real state dict
-    if isinstance(sd, dict) and "model" in sd and isinstance(sd["model"], dict):
-        sd = sd["model"]
-    elif isinstance(sd, dict) and "state_dict" in sd and isinstance(sd["state_dict"], dict):
-        sd = sd["state_dict"]
-
-    # remove DDP prefixes if any
-    sd = {k.replace("module.", ""): v for k, v in sd.items()}
-
-    # load STRICTLY so we fail fast if something doesn’t match
-    missing, unexpected = model.load_state_dict(sd, strict=False)
-    print(f"loaded params: {len(sd)} | missing={len(missing)} | unexpected={len(unexpected)}")
-    if missing or unexpected:
-        print("⚠️ Check architecture/keys. Example missing:", missing[:3], "unexpected:", unexpected[:3])
-
-    model.eval()
-    return model
-
 
 teacher_embed = {}
 for s in seed_list:
@@ -69,8 +34,6 @@ for s in seed_list:
     teacher_embed[f'medal'] = np.load(Path(PATH_PREFIX) / f"drd_data/embeddings2/tasic_tsne_{medal_best['tsne'][s]}_{s}_train.npy")
     teacher_embed[f'embedr'] = np.load(Path(PATH_PREFIX) / f"drd_data/embeddings/tasic_tsne_{embedr_best['tsne'][s]}_{s}_train_embedr.npy").squeeze(0)
     teacher_embed[f'pcs'] = np.load(Path(PATH_PREFIX) / f"drd_data/embeddings/tasic_tsne_{pcs_best['tsne'][s]}_{s}_train_pcs.npy")
-
-X_scdeed = pd.read_csv(Path(PATH_PREFIX) / f"MEDAL/comparisons/data/tasic_train_pc4.csv", index_col=0).to_numpy()
 
 by_k_tsne = pd.DataFrame([])
 for s in seed_list:
@@ -103,7 +66,7 @@ for s in seed_list:
     
     print("Eval SCDEED")
     tw_df = evaluate_embedding(
-        X_high = X_scdeed,
+        X_high = X_og,
         X_low = teacher_embed[f"scdeed"],
         k_values = range(10, 301, 20)
     )
@@ -117,7 +80,6 @@ by_k_tsne.to_csv('tasic_by_k_tsne_all_methods.csv')
 
 teacher_embed = {}
 teacher_embed[f'scdeed'] = np.load(Path(PATH_PREFIX) / f"MEDAL/comparisons/data/tasic_train_umap_2000_0.1_0_train_pc4.npy")
-# teacher_embed[f'medal'] = np.load(Path(PATH_PREFIX) / f"drd_data/embeddings2/tasic_umap_5_0.1_0_train.npy")
 teacher_embed[f'embedr'] = np.load(Path(PATH_PREFIX) / f"drd_data/embeddings/tasic_umap_2000_0.1_0_train_embedr.npy").squeeze(0)
 
 by_k_umap = pd.DataFrame([])
@@ -142,7 +104,7 @@ for s in seed_list:
     
     print("Eval SCDEED")
     tw_df = evaluate_embedding(
-        X_high = X_scdeed,
+        X_high = X_og,
         X_low = teacher_embed[f"scdeed"],
         k_values = range(10, 301, 20)
     )
