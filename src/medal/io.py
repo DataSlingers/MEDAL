@@ -70,7 +70,7 @@ def load_model(
         dropout_rate=dropout_rate,
     )
 
-    sd = torch.load(ckpt_path, map_location="cpu")
+    sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     # unwrap checkpoint wrapper if present
     if isinstance(sd, dict) and "model" in sd and isinstance(sd["model"], dict):
         sd = sd["model"]

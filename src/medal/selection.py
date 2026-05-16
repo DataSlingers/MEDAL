@@ -5,7 +5,7 @@ Typical usage::
 
     from medal.selection import select_teacher_param, plot_reconstruction_error
 
-    df = results.load_metrics(X_train, X_val, X_test)
+    df = results.load_metrics(X_test)
     opt_param = select_teacher_param(df, param_col="perplexity")
     plot_reconstruction_error(df, opt_param, param_col="perplexity")
 """
@@ -55,34 +55,90 @@ def select_teacher_param(
     param_col: str,
     metric_col: str = "recon_loss",
     val_split: str = "Val",
+    distill_threshold: float = 1e-5,
 ) -> object:
     """
     Choose the smallest teacher hyperparameter whose mean validation
-    reconstruction loss lies within one SEM of the global minimum.
+    reconstruction loss lies within one SEM of the global minimum,
+    considering only models that reached valid distillation during training.
 
-    This is the "one-SEM rule": among all configs whose mean val loss
-    is within ``[best_mean - best_sem, best_mean + best_sem]``, prefer
-    the smallest (most conservative) parameter value.
+    Two-step procedure:
+
+    1. **Convergence filter** — keep only ``(param_col, seed)`` pairs whose
+       Train ``distill_mse`` is below *distill_threshold*.  Pairs that never
+       distilled properly are excluded from selection entirely.
+    2. **One-SEM rule** — among the remaining configs, pick the smallest
+       hyperparameter value whose mean Val loss is within one SEM of the
+       global minimum.
 
     Parameters
     ----------
     df : pd.DataFrame
         Output of :meth:`~medal.sweep.SweepResults.load_metrics`, containing
-        columns ``[param_col, "split", metric_col]``.
+        columns ``[param_col, "seed", "split", metric_col, "distill_mse"]``.
     param_col : str
         Column name of the swept hyperparameter (e.g. ``"perplexity"``).
     metric_col : str
         Loss column to minimise (default ``"recon_loss"``).
     val_split : str
-        Value in the ``"split"`` column to use for selection.
+        Value in the ``"split"`` column to use for selection (default ``"Val"``).
+    distill_threshold : float
+        Maximum Train distillation MSE allowed for a model to be considered
+        converged (default ``1e-5``).
 
     Returns
     -------
     opt_param : scalar
         The selected hyperparameter value.
+
+    Raises
+    ------
+    ValueError
+        If no ``(param_col, seed)`` pair passes the convergence filter.
     """
-    val_df = df[df["split"] == val_split]
-    stats = val_df.groupby(param_col)[metric_col].agg(["mean", "sem"])
+    import warnings
+
+    # ── 1. Convergence filter ────────────────────────────────────────
+    train_df = df[(df["split"] == "Train") & df["distill_mse"].notna()]
+
+    if train_df.empty:
+        warnings.warn(
+            "No Train distill_mse values found in df — skipping convergence "
+            "filter. Make sure load_metrics() was called with the Train split.",
+            UserWarning,
+            stacklevel=2,
+        )
+        filtered_df = df
+    else:
+        converged = train_df[train_df["distill_mse"] < distill_threshold][
+            [param_col, "seed"]
+        ]
+
+        n_total = len(train_df)
+        n_converged = len(converged)
+        n_dropped = n_total - n_converged
+
+        if n_dropped > 0:
+            warnings.warn(
+                f"{n_dropped}/{n_total} (param, seed) pairs dropped: "
+                f"Train distill_mse >= {distill_threshold:.0e}. "
+                f"{n_converged} converged pairs remain.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if converged.empty:
+            raise ValueError(
+                f"No (param, seed) pair reached Train distill_mse < "
+                f"{distill_threshold:.0e}. Lower distill_threshold or check "
+                "that training ran long enough."
+            )
+
+        filtered_df = df.merge(converged, on=[param_col, "seed"], how="inner")
+
+    # ── 2. One-SEM rule on Val ───────────────────────────────────────
+    val_df = filtered_df[filtered_df["split"] == val_split]
+    stats  = val_df.groupby(param_col)[metric_col].agg(["mean", "sem"])
     argmin = stats["mean"].idxmin()
     best_mean, best_sem = stats.loc[argmin, ["mean", "sem"]]
     threshold = best_mean + best_sem

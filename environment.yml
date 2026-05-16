@@ -13,21 +13,15 @@ dependencies:
   - matplotlib
   - seaborn
   - tqdm
-  - pyyaml
   - ipykernel
   - umap-learn
-
-  # PyTorch + CUDA (no pip wheels)
-  - pytorch
-  - torchvision
-  - torchaudio
   - opentsne
   - pyarrow
-  - cmake
 
-  # Ray is fine via pip (conda builds sometimes lag)
+  # PyTorch — add pytorch-cuda=<version> here for GPU support
+  - pytorch
+
+  # pip-only packages
   - pip:
       - ray[tune]
-      - tensorboardx
-      - pip-tools
-      - pipreqs
+      - phate

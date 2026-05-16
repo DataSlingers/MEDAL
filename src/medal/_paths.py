@@ -43,9 +43,13 @@ def _teacher_suffix(teacher: str, tc: dict) -> str:
     raise ValueError(f"Unknown teacher: {teacher!r}")
 
 
-def teacher_embedding_path(base_dir, dataset_name: str, teacher: str, tc: dict, seed: int) -> Path:
+def teacher_embedding_path(base_dir, dataset_name: str, teacher: str, tc: dict) -> Path:
     """
     Return the .npy path for a cached teacher embedding.
+
+    Teacher embeddings are keyed by (teacher, hyperparameters) only — not by
+    AE seed, because a single embedding is shared across all AE seeds for a
+    given hyperparameter configuration.
 
     Parameters
     ----------
@@ -57,11 +61,9 @@ def teacher_embedding_path(base_dir, dataset_name: str, teacher: str, tc: dict, 
         Teacher algorithm name.
     tc : dict
         Teacher hyperparameter dict (e.g. {"n_neighbors": 18, "min_dist": 0.1}).
-    seed : int
-        Random seed used to compute the embedding.
     """
     suffix = _teacher_suffix(teacher, tc)
-    return Path(base_dir) / "embeddings" / f"{dataset_name}_{suffix}_{seed}_train.npy"
+    return Path(base_dir) / "embeddings" / f"{dataset_name}_{suffix}_train.npy"
 
 
 def teacher_norm_path(embedding_path) -> Path:

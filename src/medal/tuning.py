@@ -28,6 +28,7 @@ Lower-level API (for custom search spaces)::
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -122,23 +123,98 @@ class ArchSearchResults:
 
     def save(self, path: Optional[str | Path] = None) -> Path:
         """
-        Write ``results_df`` to a CSV file.
+        Write results to disk.
+
+        Saves two files:
+
+        * ``arch_search_results.csv`` — full per-trial results table.
+        * ``best_config.json`` — best architecture + optimisation config,
+          ready to pass as ``arch_config`` to :func:`~medal.sweep.run_teacher_sweep`.
 
         Parameters
         ----------
         path : str or Path, optional
-            Destination path.  Defaults to
-            ``output_dir/arch_search_results.csv``.
+            Destination for the CSV.  Defaults to
+            ``output_dir/arch_search_results.csv``.  The JSON is always
+            written to ``output_dir/best_config.json``.
 
         Returns
         -------
         Path
-            The path the file was written to.
+            Path to the CSV file.
         """
         dest = Path(path) if path else self.output_dir / "arch_search_results.csv"
         dest.parent.mkdir(parents=True, exist_ok=True)
         self.results_df.to_csv(dest, index=False)
+
+        meta = {
+            "best_config":      _serialisable(self.best_config),
+            "best_metrics":     _serialisable(self.best_metrics),
+            "teacher_emb_path": str(self.teacher_emb_path),
+            "metric":           self.metric,
+            "mode":             self.mode,
+        }
+        json_path = self.output_dir / "best_config.json"
+        with open(json_path, "w") as f:
+            json.dump(meta, f, indent=2)
+
         return dest
+
+    @classmethod
+    def load(cls, output_dir: str | Path) -> "ArchSearchResults":
+        """
+        Reload a previously saved :class:`ArchSearchResults` from disk.
+
+        Reads ``best_config.json`` and ``arch_search_results.csv`` from
+        *output_dir*.
+
+        Parameters
+        ----------
+        output_dir : str or Path
+            The directory passed as ``output_dir`` to
+            :func:`tune_medal_architecture`.
+
+        Returns
+        -------
+        ArchSearchResults
+
+        Example
+        -------
+        ::
+
+            # --- in a later session ---
+            result = medal.ArchSearchResults.load("output/arch_search")
+            sweep  = medal.run_teacher_sweep(
+                X_train,
+                output_dir="output/teacher_sweep",
+                teacher="umap",
+                arch_config=result.best_config,
+            )
+        """
+        output_dir = Path(output_dir)
+        json_path  = output_dir / "best_config.json"
+        csv_path   = output_dir / "arch_search_results.csv"
+
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"best_config.json not found in {output_dir}. "
+                "Re-run tune_medal_architecture() with save_results=True."
+            )
+
+        with open(json_path) as f:
+            meta = json.load(f)
+
+        results_df = pd.read_csv(csv_path) if csv_path.exists() else pd.DataFrame()
+
+        return cls(
+            best_config=meta["best_config"],
+            best_metrics=meta["best_metrics"],
+            results_df=results_df,
+            teacher_emb_path=Path(meta["teacher_emb_path"]),
+            output_dir=output_dir,
+            metric=meta.get("metric", "distill_loss"),
+            mode=meta.get("mode", "min"),
+        )
 
     def __repr__(self) -> str:
         m = self.best_metrics
@@ -269,7 +345,7 @@ def tune_medal_architecture(
     from sklearn.model_selection import train_test_split
 
     # ── output directory ────────────────────────────────────────────
-    output_dir = Path(output_dir) if output_dir else Path("medal_arch_search")
+    output_dir = Path(output_dir).resolve() if output_dir else Path("medal_arch_search").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── teacher params ──────────────────────────────────────────────
@@ -309,7 +385,7 @@ def tune_medal_architecture(
         print(f"[tune_medal_architecture] Embedding saved to {emb_path}")
 
     # ── search space ────────────────────────────────────────────────
-    space = _build_arch_search_space(X_train.shape[1], search_mode)
+    space = _build_arch_search_space(search_mode)
     if search_space:
         space.update(search_space)
 
@@ -443,7 +519,7 @@ def tune_architecture(
     """
     from sklearn.model_selection import train_test_split
 
-    output_dir = Path(output_dir)
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     X_train, X_val = train_test_split(X, test_size=val_size, random_state=0)
@@ -555,7 +631,7 @@ def get_best_config(
 # Internal: search spaces
 # ------------------------------------------------------------------
 
-def _build_arch_search_space(input_dim: int, search_mode: str) -> dict:
+def _build_arch_search_space(search_mode: str) -> dict:
     """
     Build the default architecture search space.
 
@@ -673,6 +749,48 @@ def _arch_search_trainable(config):
 def _clean_config(config: dict) -> dict:
     """Strip internal / Ray-specific keys from a resolved config dict."""
     return {k: v for k, v in config.items() if k not in _INTERNAL_KEYS}
+
+
+def _serialisable(obj):
+    """Recursively convert non-JSON-serialisable values (e.g. numpy scalars)."""
+    if isinstance(obj, dict):
+        return {k: _serialisable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_serialisable(v) for v in obj]
+    if hasattr(obj, "item"):   # numpy scalar
+        return obj.item()
+    if callable(obj):
+        return str(obj)
+    return obj
+
+
+def load_arch_config(output_dir: str | Path) -> dict:
+    """
+    Load the best architecture + optimisation config from a previous
+    :func:`tune_medal_architecture` run.
+
+    Parameters
+    ----------
+    output_dir : str or Path
+        The ``output_dir`` used when running :func:`tune_medal_architecture`.
+
+    Returns
+    -------
+    dict
+        Ready to pass as ``arch_config`` to :func:`~medal.sweep.run_teacher_sweep`.
+
+    Example
+    -------
+    ::
+
+        # Session 1 — architecture search
+        medal.tune_medal_architecture(X_train, output_dir="output/arch_search", ...)
+
+        # Session 2 — teacher sweep using saved config
+        arch_config = medal.load_arch_config("output/arch_search")
+        medal.run_teacher_sweep(X_train, arch_config=arch_config, ...)
+    """
+    return ArchSearchResults.load(output_dir).best_config
 
 
 def _print_leaderboard(analysis, metric: str = "distill_loss", top_k: int = 5):

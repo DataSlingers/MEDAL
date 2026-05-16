@@ -46,7 +46,7 @@ result = medal.tune_medal_architecture(
     search_mode="grid",
     num_samples=1,
     resources_per_trial={"cpu": 4, "gpu": 1},
-    max_epochs=500,               # short for the example
+    max_epochs=3000,               # short for the example
     save_results=True,
     verbose=True,
 )
@@ -72,7 +72,7 @@ sweep_results = medal.run_teacher_sweep(
 )
 
 # ── 4. Select optimal teacher hyperparameter ─────────────────────────────────
-df = sweep_results.load_metrics(X_train, X_test)
+df = sweep_results.load_metrics(X_test)
 opt_n_neighbors = medal.select_teacher_param(df, param_col="n_neighbors")
 print(f"\nOptimal n_neighbors: {opt_n_neighbors}")
 

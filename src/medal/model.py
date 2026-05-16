@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from tqdm import tqdm
-from ray import tune
 from pathlib import Path
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -102,7 +101,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, input_dim, latent_dim=2, hidden_dims=(128, 64),
-                 activation="ReLU", bottleneck_activation="ReLU",
+                 activation="ReLU", bottleneck_activation=None,
                  final_activation=None, criterion=nn.MSELoss,
                  lambda_d=10, lr=1e-3, epochs=100, batch_size=32,
                  eta_min=1e-16, device=None, clip_grad_norm=1.0,
@@ -115,7 +114,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
         self.activation = getattr(nn, activation) if isinstance(activation, str) else activation
         self.bottleneck_activation = (
             getattr(nn, bottleneck_activation)
-            if isinstance(bottleneck_activation, str) else None
+            if isinstance(bottleneck_activation, str) else bottleneck_activation
         )
         self.final_activation = (
             getattr(nn, final_activation)
@@ -194,7 +193,11 @@ class MEDAL(BaseEstimator, TransformerMixin):
             if print_tag:
                 print(metrics)
             else:
-                tune.report(metrics)
+                try:
+                    from ray import tune as _tune
+                    _tune.report(metrics)
+                except RuntimeError:
+                    pass  # not inside a Ray Tune trial
 
         X = torch.tensor(X, dtype=torch.float32).to(self.device)
         if teacher_Z is not None:
@@ -251,7 +254,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
             avg_recon = epoch_recon_loss / num_batches
             distill_history.append(avg_distill)
             recon_history.append(avg_recon)
-            self.scheduler.step(avg_distill)
+            self.scheduler.step(avg_distill if teacher_Z is not None else avg_recon)
 
             if target_bands:
                 early_stopped = self._check_stability_and_checkpoint(
@@ -271,6 +274,11 @@ class MEDAL(BaseEstimator, TransformerMixin):
 
             if early_stopped:
                 break
+
+        # Store training stats for retrieval by callers (e.g. sweep summary)
+        self.n_epochs_trained_ = epoch + 1
+        self.final_distill_loss_ = distill_history[-1] if distill_history else float("nan")
+        self.final_recon_loss_ = recon_history[-1] if recon_history else float("nan")
 
         if save_dir is not None:
             base = Path(save_dir) / f"{prefix}_ckpts"

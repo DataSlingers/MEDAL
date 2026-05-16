@@ -248,10 +248,10 @@ plt.rcParams.update({
     'font.family':          'sans-serif',
     'font.sans-serif':      ['Arial', 'Liberation Sans', 'DejaVu Sans'],
     'font.size':            11,
-    'axes.labelsize':       11,
+    'axes.labelsize':       20,
     'axes.titlesize':       12,
-    'xtick.labelsize':      10,
-    'ytick.labelsize':      10,
+    'xtick.labelsize':      15,
+    'ytick.labelsize':      12,
     'axes.linewidth':       0.6,
     'xtick.major.width':    0.6,
     'ytick.major.width':    0.6,
@@ -331,9 +331,9 @@ def plot_line_box_panel(fig, gs_element, analysis, param_col,
 
         sns.pointplot(data=subset, x=param_col, y='recon_loss',
                       errorbar='se', color=line_color, ax=ax_line,
-                      markersize=3, linewidth=1.2, err_kws={'linewidth': 0.6})
+                      markersize=5, linewidth=1.5, err_kws={'linewidth': 0.6})
         sns.stripplot(data=subset, x=param_col, y='recon_loss',
-                      color=line_color, size=1.8, alpha=0.3, ax=ax_line, zorder=0)
+                      color=line_color, size=2, alpha=0.3, ax=ax_line, zorder=0)
 
         if ax_box is not None:
             sns.boxplot(data=subset, x=param_col, y='recon_loss',
@@ -348,7 +348,7 @@ def plot_line_box_panel(fig, gs_element, analysis, param_col,
             ax.set_axisbelow(True)
             ax.set_xlabel('')
             ax.set_ylabel('')
-            ax.tick_params(axis='both', labelsize=6)
+            ax.tick_params(axis='both', labelsize=12)
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.3f'))
 
         if ax_box is not None:
@@ -358,33 +358,33 @@ def plot_line_box_panel(fig, gs_element, analysis, param_col,
         ax_line.text(row_label_x, row_label_y, split,
                      transform=ax_line.transAxes,
                      ha='center', va='center',
-                     fontsize=12, fontweight='bold', clip_on=False)
+                     fontsize=20, clip_on=False)
 
         if split == 'Val':
             ax_line.set_ylabel('Reconstruction Loss', labelpad=2, fontsize=20, fontweight='bold')
             ax_line.fill_between(range(-1, len(unique_params) + 1),
-                                 *one_std_range, color=line_color, alpha=0.12, label='1 SEM')
+                                 *one_std_range, color=line_color, alpha=0.12, label='1-standard error rule')
             ax_line.axvline(x=vline_x, ls='--', lw=0.8, color='#333333', zorder=5)
             ax_line.legend(**legend_kw)
             ax_line.set_xlim(-0.5, len(unique_params) - 0.5)
             if ax_box is not None:
                 ax_box.axvline(x=vline_x, ls='--', lw=0.8, color='#333333', zorder=5)
 
-    if show_boxplot:
-        ax_line_train.text(0.5, 1.15, 'Mean',
-                       transform=ax_line_train.transAxes,
-                       ha='center', va='bottom', fontsize=10, fontweight='bold')
+#     if show_boxplot:
+#         ax_line_train.text(0.5, 1.15, 'Mean',
+#                        transform=ax_line_train.transAxes,
+#                        ha='center', va='bottom', fontsize=10, fontweight='bold')
         
-        ax_box_train.text(0.5, 1.15, 'Median',
-                          transform=ax_box_train.transAxes,
-                          ha='center', va='bottom', fontsize=10, fontweight='bold')
+#         ax_box_train.text(0.5, 1.15, 'Median',
+#                           transform=ax_box_train.transAxes,
+#                           ha='center', va='bottom', fontsize=10, fontweight='bold')
 
     for ax in [ax_line_train, ax_line_val] + ([ax_box_train, ax_box_val] if show_boxplot else []):
         plt.setp(ax.get_xticklabels(), visible=False)
 
     for ax in [ax_line_test] + ([ax_box_test] if show_boxplot else []):
         plt.setp(ax.get_xticklabels(), rotation=45, ha='center', fontsize=xtick_fontsize)
-        ax.set_xlabel(xlabel, labelpad=2, fontsize=10)
+        ax.set_xlabel(xlabel, labelpad=2, fontsize=15)
 
 
 def plot_embedding_grid(fig, gs_element, emb_data, params_to_show,
@@ -399,14 +399,14 @@ def plot_embedding_grid(fig, gs_element, emb_data, params_to_show,
     colorbar=True   ->  colour by recon loss via scatter + per-row colorbar
                         (cmap required)
     """
-    col_titles = ['Train', 'Val', 'Test']
+    col_titles = ['Train',  'Test']
     n_rows     = len(params_to_show)
 
-    gs = gs_element.subgridspec(n_rows, 4,
-                                width_ratios=[1, 1, 1, 0.07],
+    gs = gs_element.subgridspec(n_rows, len(col_titles) + 1,
+                                width_ratios=[1] * len(col_titles) + [0.07],
                                 hspace=0.15, wspace=0.08)
     emb_axes = np.array([
-        [fig.add_subplot(gs[row, col]) for col in range(3)]
+        [fig.add_subplot(gs[row, col]) for col in range(len(col_titles))]
         for row in range(n_rows)
     ])
 
@@ -421,7 +421,7 @@ def plot_embedding_grid(fig, gs_element, emb_data, params_to_show,
         if colorbar:
             all_recon = np.concatenate([data[s][1] for s in col_titles])
             norm      = plt.Normalize(vmin=0, vmax=np.quantile(all_recon, 0.975))
-            cax       = fig.add_subplot(gs[row, 3])
+            cax       = fig.add_subplot(gs[row, len(col_titles)])
 
         for col, split in enumerate(col_titles):
             ax             = emb_axes[row, col]
@@ -441,21 +441,21 @@ def plot_embedding_grid(fig, gs_element, emb_data, params_to_show,
                 spine.set_linewidth(0.4)
 
             if row == 0:
-                ax.set_title(split, fontsize=12, fontweight='bold', pad=3)
+                ax.set_title(split, fontsize=20, pad=3)
 
             if col == 0:
-                label = (f'Optimum ({param_label}={param})'
+                label = (f'Optimal {param_label}={param}'
                          if param == opt_param else f'{param_label}={param}')
                 bbox = ax.get_position()
                 fig.text(bbox.x0 - 0.01, bbox.y0 + bbox.height / 2,
                          label, ha='right', va='center',
-                         fontsize=row_label_fontsize, fontweight='bold', rotation=90)
+                         fontsize=20, rotation=90)
 
         if colorbar:
             cb = fig.colorbar(sc, cax=cax)
             cb.ax.tick_params(labelsize=8, width=0.4, length=2)
             cb.outline.set_linewidth(0.4)
-            cb.set_label(colorbar_label, fontsize=9, labelpad=2)
+            cb.set_label(colorbar_label, fontsize=15, labelpad=2)
 
     if fig_title is not None:
         fig.text(0.5, 0.96, fig_title,
@@ -475,7 +475,7 @@ def build_figure(analysis, param_col, unique_params, one_std_range, vline_x,
     fig.subplots_adjust(left=0.10)
 
     gs = GridSpec(1, 2, figure=fig,
-                  width_ratios=[1.2 if show_boxplot else 0.7, 2.5],
+                  width_ratios=[1.2 if show_boxplot else 1, 2.5],
                   wspace=0.15)
 
     plot_line_box_panel(fig, gs[0, 0], analysis, param_col,
@@ -492,7 +492,7 @@ def build_figure(analysis, param_col, unique_params, one_std_range, vline_x,
 
 
 def build_distortion_figure(emb_data, params_to_show, opt_param, param_label, cmap,
-                             colorbar_label='Recon. MSE',
+                             colorbar_label='Reconstruction MSE',
                              fig_title='Reconstruction error over embedding',
                              figsize=(9, 6)):
     """Standalone distortion-map figure (replaces the ad-hoc GridSpec block)."""

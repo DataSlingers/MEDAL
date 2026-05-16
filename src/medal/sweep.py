@@ -116,47 +116,61 @@ class SweepResults:
 
     def load_metrics(
         self,
-        X_train: np.ndarray,
-        X_val: Optional[np.ndarray] = None,
         X_test: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """
         Load every student checkpoint and compute reconstruction / distillation
         metrics for each (param_value, seed, split) combination.
 
+        Train and Val splits are loaded from the files saved by
+        :func:`run_teacher_sweep` (``X_train.npy`` / ``X_val.npy`` in
+        ``output_dir``).  Only the held-out test set needs to be supplied.
+
         Parameters
         ----------
-        X_train, X_val, X_test : np.ndarray
-            The data splits used during the sweep.  Only splits that are not
-            ``None`` are evaluated.
+        X_test : np.ndarray, optional
+            Held-out test data.  When provided, a ``"Test"`` split is included
+            in the returned DataFrame.
 
         Returns
         -------
         pd.DataFrame
-            Columns: ``[param_name, seed, split, recon_mse, distill_mse]``.
+            Columns: ``[param_name, seed, split, recon_mse, distill_mse,
+            recon_loss]``.  ``distill_mse`` is populated for the Train split
+            (where pre-computed teacher embeddings are available) and ``None``
+            for Val / Test.
         """
         ac = self.arch_config
-        splits = {"Train": X_train}
-        if X_val is not None:
-            splits["Val"] = X_val
+
+        # Load the exact train/val arrays used during the sweep from disk so
+        # that their sizes match the pre-computed teacher embeddings.
+        X_train_disk = np.load(self.output_dir / "X_train.npy")
+        X_val_disk   = np.load(self.output_dir / "X_val.npy")
+
+        # splits that don't have a pre-computed teacher embedding get Z=None
+        splits = {
+            "Train": (X_train_disk, True),   # (data, has_teacher_emb)
+            "Val":   (X_val_disk,   False),
+        }
         if X_test is not None:
-            splits["Test"] = X_test
+            splits["Test"] = (X_test, False)
 
         rows = []
         for param_val in self.param_values:
             tc = _tc_from_param(self.teacher, self.param_name, param_val, self.n_components)
-            for seed in self.seeds:
-                # Load teacher embedding + normaliser
-                emb_path = teacher_embedding_path(
-                    self.output_dir, "data", self.teacher, tc, seed
-                )
-                if not emb_path.exists():
-                    continue
-                Z_raw = np.load(emb_path)
-                norm_p = teacher_norm_path(emb_path)
-                normalizer = GlobalEmbeddingNormalizer.load(norm_p) if norm_p.exists() else None
-                Z_norm = normalizer.transform(Z_raw) if normalizer else Z_raw
 
+            # Load teacher embedding once per tc (shared across seeds)
+            emb_path = teacher_embedding_path(
+                self.output_dir, "data", self.teacher, tc
+            )
+            if not emb_path.exists():
+                continue
+            Z_raw = np.load(emb_path)
+            norm_p = teacher_norm_path(emb_path)
+            normalizer = GlobalEmbeddingNormalizer.load(norm_p) if norm_p.exists() else None
+            Z_norm = normalizer.transform(Z_raw) if normalizer else Z_raw
+
+            for seed in self.seeds:
                 # Load student checkpoint
                 prefix = _student_prefix(self.teacher, tc, seed)
                 ckpt = student_ckpt_path(self.output_dir, prefix)
@@ -164,24 +178,24 @@ class SweepResults:
                     continue
                 model = load_model(
                     ckpt,
-                    input_dim=X_train.shape[1],
+                    input_dim=X_train_disk.shape[1],
                     hidden_dims=tuple(ac.get("hidden_dims", [128, 128])),
-                    latent_dim=self.n_components,
+                    latent_dim=tc.get("n_components", self.n_components),
                     activation=ac.get("activation", "SELU"),
                     use_batchnorm=ac.get("use_batchnorm", False),
                     dropout_rate=ac.get("dropout_rate", 0.0),
                 )
 
-                for split_name, X_split in splits.items():
-                    recon_mse, distill_mse = compute_losses(model, X_split, Z_norm)
+                for split_name, (X_split, has_emb) in splits.items():
+                    recon_mse, distill_mse = compute_losses(
+                        model, X_split, Z_norm if has_emb else None
+                    )
                     rows.append({
                         self.param_name: param_val,
                         "seed": seed,
                         "split": split_name,
-                        "recon_mse": recon_mse,
-                        "distill_mse": distill_mse,
-                        # alias used by selection / plotting helpers
                         "recon_loss": recon_mse,
+                        "distill_mse": distill_mse,
                     })
 
         return pd.DataFrame(rows)
@@ -203,6 +217,9 @@ def run_teacher_sweep(
     normalize_teacher: bool = True,
     distill_bands: Optional[list] = None,
     resources_per_trial: Optional[dict] = None,
+    ray_storage_path: Optional[str] = None,
+    save_checkpoints: bool = True,
+    mode: str = "sweep",
     verbose: bool = True,
 ) -> SweepResults:
     """
@@ -237,6 +254,14 @@ def run_teacher_sweep(
         Target distillation-loss bands for stability-based early stopping.
     resources_per_trial : dict, optional
         Ray Tune resource spec, e.g. ``{"cpu": 4, "gpu": 1}``.
+    ray_storage_path : str, optional
+        Where Ray Tune writes its trial logs and internal checkpoints.
+        Defaults to ``output_dir/ray_results``.  Set to a ``/tmp`` path to
+        avoid filling shared cluster storage, e.g. ``"/tmp/ray_results"``.
+    mode : str
+        Label for the sweep mode, e.g. ``"teacher_sweep"``, ``"rank_sweep"``.
+        Used as a suffix in the output filename:
+        ``sweep_summary_{teacher}_{mode}.csv``.  Defaults to ``"sweep"``.
     verbose : bool
         Show progress information.
 
@@ -246,7 +271,7 @@ def run_teacher_sweep(
     """
     from ray import tune
 
-    output_dir = Path(output_dir)
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     seeds = seeds or [0]
 
@@ -262,13 +287,12 @@ def run_teacher_sweep(
     np.save(output_dir / "X_train.npy", X_train)
     np.save(output_dir / "X_val.npy", X_val)
 
-    # --- precompute teacher embeddings for every (tc, seed) pair ---
+    # --- precompute one teacher embedding per tc (shared across all AE seeds) ---
     for tc in param_grid:
-        for seed in seeds:
-            _precompute_one_embedding(
-                output_dir, "data", teacher, tc, seed, X_train,
-                normalize=normalize_teacher, verbose=verbose,
-            )
+        _precompute_one_embedding(
+            output_dir, "data", teacher, tc, X_train,
+            normalize=normalize_teacher, verbose=verbose,
+        )
 
     # --- build Ray Tune config and run ---
     base_cfg = {
@@ -279,14 +303,17 @@ def run_teacher_sweep(
         "latent_dim":     latent_dim,
         "normalize_teacher": normalize_teacher,
         "distill_bands":  distill_bands or [(1e-12, 9e-6)],
-        "verbose":        False,
-        "teacher_config": tune.grid_search(param_grid),
-        "seed":           tune.grid_search(seeds),
+        "verbose":           False,
+        "save_checkpoints":  save_checkpoints,
+        "teacher_config":    tune.grid_search(param_grid),
+        "seed":              tune.grid_search(seeds),
     }
 
     resources = resources_per_trial or {"cpu": 4, "gpu": 1}
 
-    tune.run(
+    storage = ray_storage_path or str(output_dir / "ray_results")
+
+    analysis = tune.run(
         _sweep_trainable,
         name="medal_teacher_sweep",
         num_samples=1,
@@ -294,8 +321,11 @@ def run_teacher_sweep(
         config=base_cfg,
         verbose=1 if verbose else 0,
         max_failures=3,
-        storage_path=str(output_dir / "ray_results"),
+        storage_path=storage,
     )
+
+    # --- write ablation summary CSV ---
+    _save_sweep_summary(analysis, output_dir, param_name, teacher, mode, verbose)
 
     param_values = sorted({tc[param_name] for tc in param_grid if param_name in tc})
     results = SweepResults(
@@ -316,11 +346,15 @@ def run_teacher_sweep(
 # ------------------------------------------------------------------
 
 def _precompute_one_embedding(
-    output_dir, dataset_name, teacher, tc, seed, X_train,
+    output_dir, dataset_name, teacher, tc, X_train,
     normalize=True, verbose=True,
 ):
-    """Compute and cache a single teacher embedding (skips if already exists)."""
-    path = teacher_embedding_path(output_dir, dataset_name, teacher, tc, seed)
+    """Compute and cache a single teacher embedding (skips if already exists).
+
+    One embedding is stored per (teacher, tc) configuration and shared across
+    all AE seeds — the seed only affects autoencoder weight initialisation.
+    """
+    path = teacher_embedding_path(output_dir, dataset_name, teacher, tc)
     if path.exists():
         if verbose:
             print(f"Skipping (exists): {path.name}")
@@ -334,8 +368,12 @@ def _precompute_one_embedding(
 
     Z = get_teacher_embeddings(teacher, X_train, n_components=n_components, **kw)
 
-    with open(path, "xb") as f:
-        np.save(f, Z)
+    try:
+        with open(path, "xb") as f:
+            np.save(f, Z)
+    except FileExistsError:
+        # Another worker precomputed this embedding concurrently — skip.
+        return
 
     if normalize:
         normalizer = GlobalEmbeddingNormalizer().fit(Z)
@@ -351,13 +389,14 @@ def _sweep_trainable(config):
     tc          = config["teacher_config"]
     seed        = config["seed"]
     teacher     = config["teacher"]
-    latent_dim  = config.get("latent_dim", 2)
+    # For rank sweeps, n_components varies per tc — let it override latent_dim.
+    latent_dim  = tc.get("n_components", config.get("latent_dim", 2))
     dataset     = config.get("dataset_name", "data")
     norm        = config.get("normalize_teacher", True)
 
     X_train = np.load(output_dir / "X_train.npy")
 
-    emb_path = teacher_embedding_path(output_dir, dataset, teacher, tc, 0)
+    emb_path = teacher_embedding_path(output_dir, dataset, teacher, tc)
     Z_raw = np.load(emb_path)
     if norm:
         normalizer = GlobalEmbeddingNormalizer.load(teacher_norm_path(emb_path))
@@ -386,6 +425,9 @@ def _sweep_trainable(config):
         "criterion":         nn.MSELoss,
     }
 
+    import torch
+    torch.manual_seed(seed)
+
     student = MEDAL(**student_kw)
     prefix  = _student_prefix(teacher, tc, seed)
 
@@ -398,9 +440,22 @@ def _sweep_trainable(config):
         epsilon_recon=1e-3,
         patience=50,
         return_on_stable=True,
-        save_dir=str(output_dir),
+        save_dir=str(output_dir) if config.get("save_checkpoints", True) else None,
         prefix=prefix,
     )
+
+    # Report final summary metrics so they appear in analysis.best_result /
+    # trial.last_result and can be collected into a sweep summary CSV.
+    try:
+        from ray import tune as _tune
+        _tune.report({
+            "distill_loss":       student.final_distill_loss_,
+            "recon_loss":         student.final_recon_loss_,
+            "n_epochs":           student.n_epochs_trained_,
+            "early_stopped":      student.n_epochs_trained_ < config.get("max_epochs", 5000),
+        })
+    except RuntimeError:
+        pass
 
 
 def _student_prefix(teacher, tc, seed):
@@ -417,6 +472,46 @@ def _tc_from_param(teacher, param_name, param_val, n_components):
     if teacher == "umap":
         tc["min_dist"] = 0.1
     return tc
+
+
+def _save_sweep_summary(
+    analysis,
+    output_dir: Path,
+    param_name: str,
+    teacher: str,
+    mode: str,
+    verbose: bool = True,
+):
+    """Extract per-trial final metrics from Ray Tune analysis and write a CSV.
+
+    The file is named ``sweep_summary_{teacher}_{mode}.csv`` so that summaries
+    from different teachers (umap, tsne) and sweep modes (teacher_sweep,
+    rank_sweep, etc.) do not overwrite one another.
+
+    Columns: param_name, seed, final_distill_loss, final_recon_loss,
+             n_epochs, early_stopped.
+    """
+    rows = []
+    for trial in analysis.trials:
+        cfg  = trial.config
+        last = trial.last_result or {}
+        tc   = cfg.get("teacher_config", {})
+        rows.append({
+            param_name:            tc.get(param_name, None),
+            "seed":                cfg.get("seed", None),
+            "final_distill_loss":  last.get("distill_loss", float("nan")),
+            "final_recon_loss":    last.get("recon_loss",   float("nan")),
+            "n_epochs":            last.get("n_epochs",     None),
+            "early_stopped":       last.get("early_stopped", None),
+        })
+
+    summary_df = pd.DataFrame(rows).sort_values([param_name, "seed"]).reset_index(drop=True)
+    summary_path = output_dir / f"sweep_summary_{teacher}_{mode}.csv"
+    summary_df.to_csv(summary_path, index=False)
+    if verbose:
+        print(f"\nSweep summary saved to {summary_path}")
+        print(summary_df.to_string(index=False))
+    return summary_df
 
 
 def _serialisable(obj):
