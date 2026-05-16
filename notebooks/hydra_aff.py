@@ -8,7 +8,9 @@ from pathlib import Path
 
 from medal.eval_utils import load_and_split
 
-PATH_PREFIX = '/share/ctn/users/bnc2119' 
+# Set MEDAL_DATA_DIR to the parent directory of your data (drd_data/ lives here)
+import os
+PATH_PREFIX = os.environ.get('MEDAL_DATA_DIR', os.path.expanduser('~'))
 
 X, X_test, y, y_test = load_and_split("hydra", test_size=0.2, seed=0, labels=True)
 for n in np.unique(np.logspace(np.log10(5), np.log10(2000), 10).astype(int)):

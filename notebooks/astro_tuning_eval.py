@@ -6,7 +6,9 @@ import numpy as np, pandas as pd
 from pathlib import Path
 import torch
 
-PATH_PREFIX = '/share/ctn/users/bnc2119'
+# Set MEDAL_DATA_DIR to the parent directory of your data (drd_data/ lives here)
+import os
+PATH_PREFIX = os.environ.get('MEDAL_DATA_DIR', os.path.expanduser('~'))
 
 X_og, X_test, y_og, y_test = load_and_split("astro", test_size=0.2, seed=0, labels=True)
 X, X_val, y, y_val = train_test_split(X_og, y_og, test_size = 0.2, random_state = 0)

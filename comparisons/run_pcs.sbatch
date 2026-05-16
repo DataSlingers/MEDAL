@@ -2,13 +2,12 @@
 #SBATCH -p ctn
 #SBATCH -N 1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=160g
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=320g
 #SBATCH --job-name=pcs
 #SBATCH -t 96:00:00
 #SBATCH --output=logs/pcs_%j.out
 #SBATCH --error=logs/pcs_%j.err
-#SBATCH --chdir=/share/ctn/users/bnc2119/MEDAL/comparisons
 module load anaconda3-2023.07
 #module purge
 module load Miniforge-24.7.1-2

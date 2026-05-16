@@ -72,7 +72,7 @@ Sys.setenv(
 )
 
 Sys.setenv(RETICULATE_AUTOCONFIGURE = "FALSE")
-Sys.setenv(RETICULATE_PYTHON = "/share/ctn/users/bnc2119/.conda/envs/medalcomp/bin/python")
+# Sys.setenv(RETICULATE_PYTHON = "/path/to/your/conda/envs/medalcomp/bin/python")  # set if needed
 
 message("Set BLAS/OpenMP thread env vars to 1")
 
@@ -239,7 +239,7 @@ run_one_dataset <- function(csv_path,
     
     # y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_train_%d.npy", perp, no_rep)
     # p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/cortical_tsne_%d_0_P_%d.mtx", perp, no_rep)
-    y_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/%s_tsne_%d_%d_train_pcs.npy", tolower(df_name), perp, load_this_seed)
+    y_path <- sprintf("%s/embeddings/%s_tsne_%d_%d_train_pcs.npy", Sys.getenv("MEDAL_DATA_DIR", file.path(Sys.getenv("HOME"), "drd_data")), tolower(df_name), perp, load_this_seed)
     np$save(y_path, tsne_out$Y)
     # p_path <- sprintf("/share/ctn/users/bnc2119/drd_data/embeddings/%s_tsne_%d_0_P.mtx", tolower(df_name), perp)
     # message("     [LOAD] Y from: ", y_path)

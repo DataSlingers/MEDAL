@@ -15,4 +15,4 @@ source activate drd
 
 rm -rf ~/ray_results
 
-PYTHONPATH=/home/bnc2119/drd:$PYTHONPATH python eval/tuning.py
+PYTHONPATH="$(cd ..; pwd):$PYTHONPATH" python eval/tuning.py

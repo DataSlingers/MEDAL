@@ -228,7 +228,7 @@ run_scdeed_all_data <- function(path, name, K, load_this_seed) {
     verbose  = FALSE
   )
   pca_embed <- data@reductions$pca@cell.embeddings[, 1:K]
-  write.csv(pca_embed, file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", paste0(name, "_pc", K, ".csv")))
+  write.csv(pca_embed, file.path("comparisons/data", paste0(name, "_pc", K, ".csv")))
   
   ## Dataset-specific grids
   key   <- infer_dataset_key(name)
@@ -254,7 +254,7 @@ run_scdeed_all_data <- function(path, name, K, load_this_seed) {
     embed <- reticulate::py_to_r(tsne$fit(pca_mat))
     if (save){
         np$save(
-          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data", sprintf("%s_tsne_%d_%d_train_pc%d.npy", name, as.integer(perplexity), load_this_seed, K)),
+          file.path("comparisons/data", sprintf("%s_tsne_%d_%d_train_pc%d.npy", name, as.integer(perplexity), load_this_seed, K)),
           reticulate::r_to_py(embed)
         )
     }
@@ -271,7 +271,7 @@ run_scdeed_all_data <- function(path, name, K, load_this_seed) {
       embed <- reticulate::py_to_r(reducer$fit_transform(pca_mat))
       if (save) {
         np$save(
-          file.path("/share/ctn/users/bnc2119/MEDAL/comparisons/data",
+          file.path("comparisons/data",
                     sprintf("%s_umap_%d_%.1f_%d_train_pc%d.npy", name, as.integer(n_neighbors), min_dist,load_this_seed, K)),
           reticulate::r_to_py(embed)
         )

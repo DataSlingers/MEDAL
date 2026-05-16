@@ -8,7 +8,6 @@
 #SBATCH -t 96:00:00
 #SBATCH --output=logs/scdeed_%j.out
 #SBATCH --error=logs/scdeed_%j.err
-#SBATCH --chdir=/share/ctn/users/bnc2119/MEDAL/comparisons
 
 module purge
 #module add r/4.4.0

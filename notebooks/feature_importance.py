@@ -1,14 +1,15 @@
 import torch
 from captum.attr import IntegratedGradients
 import sys
-sys.path.insert(0, '/home/bnc2119/MEDAL')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np, pandas as pd
 from src.medal.eval_utils import load_and_split, get_teacher_embeddings
 from src.medal.core import AutoEncoder
 import torch
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-PATH_PREFIX = '/share/ctn/users/bnc2119/drd_data' 
+# Set MEDAL_DATA_DIR to your data directory (containing embeddings/, tmp_results/, etc.)
+PATH_PREFIX = os.environ.get('MEDAL_DATA_DIR', os.path.expanduser('~/drd_data'))
 
 class MedalDistillScore(torch.nn.Module):
     """

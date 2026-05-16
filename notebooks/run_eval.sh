@@ -13,4 +13,4 @@ module load anaconda3-2023.07
 conda activate medal
 
 
-PYTHONPATH=/home/bnc2119/MEDAL:$PYTHONPATH python -u tasic_tuning_eval.py
+PYTHONPATH="$(cd ..; pwd):$PYTHONPATH" python -u tasic_tuning_eval.py

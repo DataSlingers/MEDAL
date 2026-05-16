@@ -213,7 +213,7 @@ if __name__ == "__main__":
 
     # Same convention as your R script: code directory with ../data
     #input_dir = os.path.join("..", "data")
-    input_dir = '/share/ctn/users/bnc2119/MEDAL/comparisons/data'
+    input_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
     for lts in [2, 10]:
         out_root = "results_embedr_tsne_seed" + str(lts)
         os.makedirs(out_root, exist_ok=True)

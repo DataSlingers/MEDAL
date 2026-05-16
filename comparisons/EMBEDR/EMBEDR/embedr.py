@@ -657,20 +657,18 @@ class EMBEDR(object):
                                                    kNN_graph=self.data_kNN,
                                                    aff_mat=self.data_P)
                 print("self._seed", self._seed)
-                np.save(
-                    f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy',
-                    dY)
-                print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy")
+                _embedr_out = os.path.join(os.environ.get('MEDAL_DATA_DIR', '.'), 'embeddings', f'{self.dataset}_tsne_{self.perplexity}_{self.load_this_seed}_train_embedr.npy')
+                np.save(_embedr_out, dY)
+                print(f"saving {_embedr_out}")
 
             elif (self.DRA in ['umap']):
                 print("self._seed", self._seed)
                 dY, dEES = self.get_UMAP_embedding(X=self.data_X,
                                                    kNN_graph=self.data_kNN,
                                                    aff_mat=self.data_P)
-                np.save(
-                    f'/share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy',
-                    dY)
-                print(f"saving /share/ctn/users/bnc2119/drd_data/embeddings/{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy")
+                _embedr_out = os.path.join(os.environ.get('MEDAL_DATA_DIR', '.'), 'embeddings', f'{self.dataset}_umap_{self.n_neighbors}_0.1_{self.load_this_seed}_train_embedr.npy')
+                np.save(_embedr_out, dY)
+                print(f"saving {_embedr_out}")
 
             if not self._keep_affmats:
                 if self.verbose >= 5:
