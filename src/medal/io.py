@@ -177,3 +177,49 @@ def eval_student(student, X: np.ndarray, Z: np.ndarray) -> dict:
     """Convenience wrapper: returns a dict with recon_mse and distill_mse."""
     rmse, dmse = compute_losses(model=student.model, X=X, teacher_z=Z)
     return {"recon_mse": rmse, "distill_mse": dmse}
+
+
+def embed_with_reconstruction(
+    model: AutoEncoder,
+    X: np.ndarray,
+    device: Optional[str] = None,
+    batch_size: int = 1024,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Encode *X* and compute per-point reconstruction error in a single pass.
+
+    Parameters
+    ----------
+    model : AutoEncoder
+    X : array-like of shape (n_samples, input_dim)
+    device : str, optional
+    batch_size : int
+
+    Returns
+    -------
+    Z : np.ndarray of shape (n_samples, latent_dim)
+    recon_error : np.ndarray of shape (n_samples,)
+        Per-sample mean squared reconstruction error.
+    """
+    if device is None:
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = "cpu"
+
+    X = np.asarray(X, dtype=np.float32)
+    model = model.to(device)
+    model.eval()
+
+    Z_chunks, recon_chunks = [], []
+    for start in range(0, len(X), batch_size):
+        x_chunk = torch.tensor(X[start:start + batch_size]).to(device)
+        with torch.no_grad():
+            x_recon, z = model(x_chunk)
+        Z_chunks.append(z.cpu().numpy())
+        recon_chunks.append(x_recon.cpu().numpy())
+
+    Z = np.concatenate(Z_chunks, axis=0)
+    X_recon = np.concatenate(recon_chunks, axis=0)
+    recon_error = np.mean((X - X_recon) ** 2, axis=1)
+    return Z, recon_error

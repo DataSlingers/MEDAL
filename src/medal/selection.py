@@ -3,15 +3,21 @@ Teacher-hyperparameter selection and visualisation utilities.
 
 Typical usage::
 
-    from medal.selection import select_teacher_param, plot_reconstruction_error
+    from medal.selection import select_teacher_param, plot_reconstruction_error, plot_distortion_map
 
     df = results.load_metrics(X_test)
     opt_param = select_teacher_param(df, param_col="perplexity")
+
+    # Tuning curve
     plot_reconstruction_error(df, opt_param, param_col="perplexity")
+
+    # Distortion view at the optimal (or any chosen) hyperparameter
+    emb_data = results.load_embeddings(y_train, X_test, y_test, params=[opt_param])
+    plot_distortion_map(emb_data, opt_param, param_col="perplexity")
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -150,20 +156,20 @@ def plot_reconstruction_error(
     df: pd.DataFrame,
     opt_param,
     param_col: str,
-    emb_data: Optional[dict] = None,
-    params_to_show: Optional[List] = None,
-    palette=None,
-    param_label: Optional[str] = None,
+    show_boxplot: bool = False,
     xlabel: Optional[str] = None,
-    figsize: Tuple[int, int] = (15, 7),
-    show_boxplot: bool = True,
+    figsize: Tuple[int, int] = (7, 7),
     row_label_y: float = 1.15,
     legend_kw: Optional[dict] = None,
     xtick_fontsize: int = 10,
     share_x_lines: bool = True,
 ) -> "plt.Figure":
     """
-    Combined reconstruction-error panel with optional embedding grid.
+    Plot reconstruction loss vs. swept hyperparameter (tuning curve).
+
+    Three-row panel (Train / Val / Test), each showing mean ± SEM with
+    individual seed points.  A shaded 1-SEM band and a dashed vertical line
+    mark the selected optimal parameter on the Val row.
 
     Parameters
     ----------
@@ -172,21 +178,13 @@ def plot_reconstruction_error(
     opt_param : scalar
         Optimal parameter value returned by :func:`select_teacher_param`.
     param_col : str
-        Column name of the swept hyperparameter.
-    emb_data : dict, optional
-        ``{param_val: {"Train": (Z, recon_errors, labels), ...}}``.
-        When provided, a label-coloured embedding grid is shown on the right.
-    params_to_show : list, optional
-        Subset of parameter values to show in the embedding grid.
-    palette : optional
-        Colour palette passed to seaborn.
-    param_label : str, optional
-        Display name for the parameter axis (defaults to ``param_col``).
-    xlabel : str, optional
-        x-axis label for the line/box panel (defaults to ``param_col``).
-    figsize : tuple
+        Column name of the swept hyperparameter (e.g. ``"perplexity"``).
     show_boxplot : bool
-        Show median boxplot next to the mean line panel.
+        When ``True``, adds a median boxplot column next to the mean line
+        panel.  Default ``False`` (mean only).
+    xlabel : str, optional
+        x-axis label (defaults to ``param_col``).
+    figsize : tuple
     row_label_y, legend_kw, xtick_fontsize, share_x_lines
         Forwarded to :func:`_plot_line_box_panel`.
 
@@ -202,77 +200,70 @@ def plot_reconstruction_error(
     unique_params = sorted(df[param_col].unique())
 
     val_df = df[df["split"] == "Val"]
-    stats = val_df.groupby(param_col)["recon_loss"].agg(["mean", "sem"])
+    stats  = val_df.groupby(param_col)["recon_loss"].agg(["mean", "sem"])
     argmin = stats["mean"].idxmin()
     best_mean, best_sem = stats.loc[argmin, ["mean", "sem"]]
     one_std_range = (best_mean - best_sem, best_mean + best_sem)
     vline_x = unique_params.index(opt_param)
 
     xlabel = xlabel or param_col
-    param_label = param_label or param_col
 
     fig = plt.figure(figsize=figsize)
-    fig.subplots_adjust(left=0.10)
+    fig.subplots_adjust(left=0.15)
+    gs = GridSpec(1, 1, figure=fig)
+    _plot_line_box_panel(
+        fig, gs[0, 0], df, param_col, unique_params,
+        one_std_range, vline_x, xlabel,
+        row_label_y=row_label_y, legend_kw=legend_kw,
+        xtick_fontsize=xtick_fontsize,
+        share_x_lines=share_x_lines,
+        show_boxplot=show_boxplot,
+    )
 
-    if emb_data is not None:
-        gs = GridSpec(1, 2, figure=fig,
-                      width_ratios=[1.2 if show_boxplot else 0.7, 2.5],
-                      wspace=0.15)
-        _plot_line_box_panel(
-            fig, gs[0, 0], df, param_col, unique_params,
-            one_std_range, vline_x, xlabel,
-            row_label_y=row_label_y, legend_kw=legend_kw,
-            xtick_fontsize=xtick_fontsize,
-            share_x_lines=share_x_lines,
-            show_boxplot=show_boxplot,
-        )
-        _plot_embedding_grid(
-            fig, gs[0, 1], emb_data,
-            params_to_show or unique_params,
-            opt_param, param_label, palette=palette,
-        )
-    else:
-        gs = GridSpec(1, 1, figure=fig)
-        _plot_line_box_panel(
-            fig, gs[0, 0], df, param_col, unique_params,
-            one_std_range, vline_x, xlabel,
-            row_label_y=row_label_y, legend_kw=legend_kw,
-            xtick_fontsize=xtick_fontsize,
-            share_x_lines=share_x_lines,
-            show_boxplot=show_boxplot,
-        )
-
+    plt.tight_layout()
     plt.show()
     return fig
 
 
 def plot_distortion_map(
-    emb_data: dict,
-    params_to_show: List,
+    emb_data: Dict[Any, Dict[str, tuple]],
     opt_param,
-    param_label: str,
-    cmap="magma",
+    param_col: str,
+    param: Any = "best",
+    palette=None,
+    cmap: str = "magma",
+    param_label: Optional[str] = None,
     colorbar_label: str = "Recon. MSE",
-    fig_title: str = "Reconstruction error over embedding",
-    figsize: Tuple[int, int] = (9, 6),
+    figsize: Tuple[int, int] = (10, 5),
 ) -> "plt.Figure":
     """
-    Standalone distortion-map figure: embeddings coloured by per-point
-    reconstruction error instead of class label.
+    Two-row distortion figure for a single hyperparameter value.
+
+    Row 0: embedding coloured by class labels.
+    Row 1: embedding coloured by per-point reconstruction error (distortion map).
+    Columns: Train, Val, Test.
 
     Parameters
     ----------
     emb_data : dict
         ``{param_val: {"Train": (Z, recon_errors, labels), ...}}``.
-    params_to_show : list
-        Subset of parameter values whose rows to show.
+        Built by :meth:`~medal.sweep.SweepResults.load_embeddings`.
     opt_param : scalar
-        Optimal parameter (row is annotated as "Optimum").
-    param_label : str
-        Display name for row labels (e.g. ``"perplexity"``).
-    cmap : str or Colormap
+        Optimal parameter value from :func:`select_teacher_param`.
+    param_col : str
+        Column name of the swept hyperparameter (used in the figure title).
+    param : scalar or ``"best"``
+        Which hyperparameter value to display.  ``"best"`` uses ``opt_param``;
+        pass any value present in ``emb_data`` to display that instead.
+    palette : optional
+        Colour palette for the label row (passed to seaborn).
+    cmap : str
+        Colourmap for the distortion row.
+    param_label : str, optional
+        Display name for the parameter in the figure title (defaults to
+        ``param_col``).
     colorbar_label : str
-    fig_title : str
+        Label for the distortion colorbar.
     figsize : tuple
 
     Returns
@@ -283,16 +274,25 @@ def plot_distortion_map(
     from matplotlib.gridspec import GridSpec
     plt.rcParams.update(_RCPARAMS)
 
+    param_val = opt_param if param == "best" else param
+    if param_val not in emb_data:
+        raise ValueError(
+            f"param={param_val!r} not found in emb_data. "
+            f"Available: {sorted(emb_data)}"
+        )
+
+    param_label = param_label or param_col
+    title_str = (
+        f"Optimal {param_label}={param_val}"
+        if param_val == opt_param else f"{param_label}={param_val}"
+    )
+
     fig = plt.figure(figsize=figsize)
-    fig.subplots_adjust(left=0.12)
+    fig.subplots_adjust(left=0.08, right=0.92, top=0.88)
     gs = GridSpec(1, 1, figure=fig)
-    _plot_embedding_grid(
-        fig, gs[0, 0], emb_data, params_to_show,
-        opt_param, param_label,
-        cmap=cmap, colorbar=True,
-        colorbar_label=colorbar_label,
-        fig_title=fig_title,
-        row_label_fontsize=10,
+    _plot_distortion_panel(
+        fig, gs[0, 0], emb_data[param_val], title_str,
+        palette=palette, cmap=cmap, colorbar_label=colorbar_label,
     )
     plt.show()
     return fig
@@ -313,7 +313,7 @@ def _plot_line_box_panel(
     legend_kw: Optional[dict] = None,
     xtick_fontsize: int = 10,
     share_x_lines: bool = True,
-    show_boxplot: bool = True,
+    show_boxplot: bool = False,
 ):
     """Line (mean ± SEM) and optional boxplot (median) panels."""
     import matplotlib.ticker as ticker
@@ -388,14 +388,6 @@ def _plot_line_box_panel(
             if ax_box is not None:
                 ax_box.axvline(x=vline_x, ls="--", lw=0.8, color="#333333", zorder=5)
 
-    if show_boxplot:
-        ax_line_train.text(0.5, 1.15, "Mean",
-                           transform=ax_line_train.transAxes,
-                           ha="center", va="bottom", fontsize=10, fontweight="bold")
-        ax_box_train.text(0.5, 1.15, "Median",
-                          transform=ax_box_train.transAxes,
-                          ha="center", va="bottom", fontsize=10, fontweight="bold")
-
     for ax in [ax_line_train, ax_line_val] + ([ax_box_train, ax_box_val] if show_boxplot else []):
         plt.setp(ax.get_xticklabels(), visible=False)
 
@@ -404,87 +396,79 @@ def _plot_line_box_panel(
         ax.set_xlabel(xlabel, labelpad=2, fontsize=10)
 
 
-def _plot_embedding_grid(
-    fig, gs_element, emb_data: dict, params_to_show: List,
-    opt_param, param_label: str,
+def _plot_distortion_panel(
+    fig,
+    gs_element,
+    data: Dict[str, tuple],
+    title_str: str,
     palette=None,
-    cmap=None,
-    colorbar: bool = False,
+    cmap: str = "BuGn",
     colorbar_label: str = "Recon. MSE",
-    fig_title: Optional[str] = None,
-    row_label_fontsize: int = 12,
 ):
     """
-    Unified embedding grid for label-coloured and distortion-map plots.
+    2-row × 3-col panel for a single hyperparameter value.
 
-    colorbar=False  -> colour by class label via seaborn  (palette required)
-    colorbar=True   -> colour by recon loss via scatter + per-row colorbar
-                       (cmap required)
+    Row 0: scatter coloured by class label.
+    Row 1: scatter coloured by per-point reconstruction error.
+    Columns: Train, Val, Test.
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-    col_titles = ["Train", "Val", "Test"]
-    n_rows     = len(params_to_show)
+    splits = ["Train", "Val", "Test"]
+    n_cols = len(splits)
 
-    gs = gs_element.subgridspec(n_rows, 4,
-                                width_ratios=[1, 1, 1, 0.07],
-                                hspace=0.15, wspace=0.08)
-    emb_axes = np.array([
-        [fig.add_subplot(gs[row, col]) for col in range(3)]
-        for row in range(n_rows)
-    ])
+    gs = gs_element.subgridspec(
+        2, n_cols + 1,
+        width_ratios=[1] * n_cols + [0.07],
+        hspace=0.10, wspace=0.08,
+    )
 
-    for row, param in enumerate(params_to_show):
-        data = {}
-        for s in col_titles:
-            Z, recon, labs = emb_data[param][s]
-            data[s] = (
-                Z.detach().numpy() if hasattr(Z, "detach") else np.array(Z),
-                recon,
-                labs,
-            )
+    # Shared colour norm across all splits for the distortion row
+    all_recon = np.concatenate([np.asarray(data[s][1]) for s in splits if s in data])
+    norm = plt.Normalize(vmin=0, vmax=np.quantile(all_recon, 0.975))
+    cax  = fig.add_subplot(gs[1, n_cols])
 
-        if colorbar:
-            all_recon = np.concatenate([data[s][1] for s in col_titles])
-            norm      = plt.Normalize(vmin=0, vmax=np.quantile(all_recon, 0.975))
-            cax       = fig.add_subplot(gs[row, 3])
+    sc = None
+    for col, split in enumerate(splits):
+        Z, recon, labs = data[split]
+        Z     = Z.detach().numpy() if hasattr(Z, "detach") else np.asarray(Z)
+        recon = np.asarray(recon)
 
-        for col, split in enumerate(col_titles):
-            ax             = emb_axes[row, col]
-            Z, recon, labs = data[split]
+        # Row 0 — label-coloured
+        ax_lbl = fig.add_subplot(gs[0, col])
+        sns.scatterplot(
+            x=Z[:, 0], y=Z[:, 1], hue=labs, palette=palette,
+            s=4, alpha=0.7, ax=ax_lbl, legend=False,
+            linewidths=0, rasterized=True,
+        )
+        _clean_embedding_ax(ax_lbl)
+        ax_lbl.set_title(split, fontsize=12, fontweight="bold", pad=3)
+        if col == 0:
+            ax_lbl.set_ylabel("Labels", fontsize=10, fontweight="bold", labelpad=4)
 
-            if colorbar:
-                sc = ax.scatter(Z[:, 0], Z[:, 1], c=recon, cmap=cmap,
-                                norm=norm, s=5, alpha=0.7,
-                                linewidths=0, rasterized=True)
-            else:
-                sns.scatterplot(x=Z[:, 0], y=Z[:, 1], hue=labs, palette=palette,
-                                s=4, alpha=0.7, ax=ax, legend=False,
-                                linewidths=0, rasterized=True)
+        # Row 1 — distortion heatmap
+        ax_dst = fig.add_subplot(gs[1, col])
+        sc = ax_dst.scatter(
+            Z[:, 0], Z[:, 1], c=recon, cmap=cmap,
+            norm=norm, s=4, alpha=0.7, linewidths=0, rasterized=True,
+        )
+        _clean_embedding_ax(ax_dst)
+        if col == 0:
+            ax_dst.set_ylabel("Distortion", fontsize=10, fontweight="bold", labelpad=4)
 
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_linewidth(0.4)
+    # Colorbar aligned to the distortion row
+    cb = fig.colorbar(sc, cax=cax)
+    cb.ax.tick_params(labelsize=8, width=0.4, length=2)
+    cb.outline.set_linewidth(0.4)
+    cb.set_label(colorbar_label, fontsize=9, labelpad=2)
 
-            if row == 0:
-                ax.set_title(split, fontsize=12, fontweight="bold", pad=3)
+    # Figure-level title
+    fig.suptitle(title_str, fontsize=12, fontweight="bold", y=0.98)
 
-            if col == 0:
-                label = (f"Optimum ({param_label}={param})"
-                         if param == opt_param else f"{param_label}={param}")
-                bbox = ax.get_position()
-                fig.text(bbox.x0 - 0.01, bbox.y0 + bbox.height / 2,
-                         label, ha="right", va="center",
-                         fontsize=row_label_fontsize, fontweight="bold", rotation=90)
 
-        if colorbar:
-            cb = fig.colorbar(sc, cax=cax)
-            cb.ax.tick_params(labelsize=8, width=0.4, length=2)
-            cb.outline.set_linewidth(0.4)
-            cb.set_label(colorbar_label, fontsize=9, labelpad=2)
-
-    if fig_title is not None:
-        fig.text(0.5, 0.96, fig_title,
-                 ha="center", va="bottom", fontsize=12, fontweight="bold")
+def _clean_embedding_ax(ax):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.4)

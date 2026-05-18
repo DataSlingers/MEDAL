@@ -6,7 +6,8 @@ Demonstrates the full workflow:
   2. Search for the best AE architecture (tune_medal_architecture)
   3. Run a teacher hyperparameter sweep (run_teacher_sweep)
   4. Select the optimal teacher parameter (select_teacher_param)
-  5. Visualise reconstruction error (plot_reconstruction_error)
+  5. Visualise tuning curve (plot_reconstruction_error)
+  6. Visualise distortion map at the optimal hyperparameter (plot_distortion_map)
 
 Run with:
     python examples/tune_architecture_example.py
@@ -25,7 +26,7 @@ mnist = fetch_openml("mnist_784", version=1, as_frame=False)
 X = mnist.data[:5000].astype(np.float32) / 255.0
 y = mnist.target[:5000]
 
-X_train, X_test = train_test_split(X, test_size=0.2, random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
 
 # ── 2. Architecture search ────────────────────────────────────────────────────
 # Default: grid search over hidden_dims × lr × lambda_d with a UMAP teacher.
@@ -76,5 +77,22 @@ df = sweep_results.load_metrics(X_test)
 opt_n_neighbors = medal.select_teacher_param(df, param_col="n_neighbors")
 print(f"\nOptimal n_neighbors: {opt_n_neighbors}")
 
-# ── 5. Visualise ─────────────────────────────────────────────────────────────
+# ── 5. Tuning curve ───────────────────────────────────────────────────────────
 medal.plot_reconstruction_error(df, opt_n_neighbors, param_col="n_neighbors")
+
+# ── 6. Distortion map at the optimal hyperparameter ──────────────────────────
+# Load embeddings only for the selected parameter to keep this fast.
+# y_train are labels for the full X_train passed to run_teacher_sweep;
+# load_embeddings re-applies the same internal val split to match them.
+emb_data = sweep_results.load_embeddings(
+    y_train,
+    X_test,
+    y_test,
+    params=[opt_n_neighbors],
+)
+medal.plot_distortion_map(
+    emb_data,
+    opt_n_neighbors,
+    param_col="n_neighbors",
+    param="best",
+)

@@ -200,6 +200,99 @@ class SweepResults:
 
         return pd.DataFrame(rows)
 
+    def load_embeddings(
+        self,
+        y: np.ndarray,
+        X_test: np.ndarray,
+        y_test: np.ndarray,
+        params: Optional[List] = None,
+        seed: Optional[int] = None,
+        val_size: float = 0.2,
+    ) -> dict:
+        """
+        Load trained student checkpoints and compute embeddings and per-point
+        reconstruction errors for Train, Val, and Test splits.
+
+        Parameters
+        ----------
+        y : array-like of shape (n_samples,)
+            Labels for the full *X* passed to :func:`run_teacher_sweep` (before
+            the internal val split).  The same ``random_state=0`` split used
+            during training is applied here to obtain matching ``y_train`` /
+            ``y_val`` arrays.
+        X_test : np.ndarray
+            Held-out test data (same array passed to :meth:`load_metrics`).
+        y_test : array-like of shape (n_test_samples,)
+            Labels for the test split.
+        params : list, optional
+            Subset of param values to load.  Defaults to all
+            ``self.param_values``.
+        seed : int, optional
+            Which seed's checkpoint to use for the embeddings.  Defaults to
+            the first seed in ``self.seeds``.
+        val_size : float
+            Must match the ``val_size`` used in :func:`run_teacher_sweep`
+            (default ``0.2``).
+
+        Returns
+        -------
+        emb_data : dict
+            ``{param_val: {"Train": (Z, recon_errors, labels),
+                           "Val":   (Z, recon_errors, labels),
+                           "Test":  (Z, recon_errors, labels)}}``
+
+            *Z* is an ``(n_samples, latent_dim)`` array; *recon_errors* is a
+            per-sample MSE array of shape ``(n_samples,)``; *labels* is the
+            corresponding slice of *y* / *y_test*.
+        """
+        from sklearn.model_selection import train_test_split as _split
+        from medal.io import load_model, embed_with_reconstruction
+
+        params = params if params is not None else self.param_values
+        seed   = seed   if seed   is not None else self.seeds[0]
+
+        # Load the exact X arrays used during the sweep
+        X_train_disk = np.load(self.output_dir / "X_train.npy")
+        X_val_disk   = np.load(self.output_dir / "X_val.npy")
+
+        # Re-create matching label splits (same random_state=0 as run_teacher_sweep)
+        y_arr = np.asarray(y)
+        y_train, y_val = _split(y_arr, test_size=val_size, random_state=0)
+        y_test_arr = np.asarray(y_test)
+
+        splits = {
+            "Train": (X_train_disk, y_train),
+            "Val":   (X_val_disk,   y_val),
+            "Test":  (X_test,       y_test_arr),
+        }
+
+        ac = self.arch_config
+        emb_data = {}
+
+        for param_val in params:
+            tc     = _tc_from_param(self.teacher, self.param_name, param_val, self.n_components)
+            prefix = _student_prefix(self.teacher, tc, seed)
+            ckpt   = student_ckpt_path(self.output_dir, prefix)
+            if not ckpt.exists():
+                continue
+
+            model = load_model(
+                ckpt,
+                input_dim=X_train_disk.shape[1],
+                hidden_dims=tuple(ac.get("hidden_dims", [128, 128])),
+                latent_dim=tc.get("n_components", self.n_components),
+                activation=ac.get("activation", "SELU"),
+                use_batchnorm=ac.get("use_batchnorm", False),
+                dropout_rate=ac.get("dropout_rate", 0.0),
+            )
+
+            emb_data[param_val] = {}
+            for split_name, (X_split, labels) in splits.items():
+                Z, recon_error = embed_with_reconstruction(model, X_split)
+                emb_data[param_val][split_name] = (Z, recon_error, labels)
+
+        return emb_data
+
 
 # ------------------------------------------------------------------
 # Main entry point
