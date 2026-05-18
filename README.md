@@ -138,17 +138,6 @@ sweep_results = medal.run_teacher_sweep(
 
 Teacher embeddings are computed and cached once per hyperparameter value; student checkpoints are saved for every `(param_value, seed)` pair.
 
-**Supported teacher algorithms:**
-
-| `teacher=` | Swept parameter | Notes |
-|---|---|---|
-| `"tsne"` | `perplexity` | via openTSNE |
-| `"umap"` | `n_neighbors` | via umap-learn |
-| `"pca"` | — | no hyperparameter to sweep |
-| `"isomap"` | `n_neighbors` | via scikit-learn |
-| `"spectral"` | `n_neighbors` | via scikit-learn |
-| `"phate"` | `n_neighbors` | via phate |
-
 **`SweepResults` attributes:**
 
 | Attribute | Description |
@@ -254,7 +243,7 @@ losses = medal.compute_losses(model, X, Z_teacher)
 # losses: {"recon_loss": float, "distill_loss": float}
 ```
 
-<!-- ### Normalising teacher embeddings
+<!--  ### Normalising teacher embeddings
 
 `GlobalEmbeddingNormalizer` centres embeddings to zero mean and scales to unit RMS radius, which can improve numerical stability during distillation.
 
@@ -266,8 +255,8 @@ Z_norm = norm.fit(Z_train).transform(Z_train)
 Z_test_norm = norm.transform(Z_test)
 
 norm.save("experiments/normalizer.pkl")
-norm = GlobalEmbeddingNormalizer.load("experiments/normalizer.pkl") -->
-```
+norm = GlobalEmbeddingNormalizer.load("experiments/normalizer.pkl") 
+``` -->
 
 ---
 
