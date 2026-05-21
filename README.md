@@ -1,4 +1,6 @@
-<img src="medal_logo_with_text.svg" alt="MEDAL logo" width="400">
+<div align="center">
+  <img src="medal_logo_with_text.svg" alt="MEDAL logo" width="400">
+</div>
 
 # MEDAL
 
