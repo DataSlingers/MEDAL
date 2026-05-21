@@ -1,3 +1,5 @@
+<img src="medal_logo_with_text.svg" alt="MEDAL logo" width="400">
+
 # MEDAL
 
 **Manifold Embedding Distillation via Autoencoder Learning**
