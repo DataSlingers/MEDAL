@@ -22,12 +22,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-
-# ------------------------------------------------------------------
-# Plot style constants (applied lazily so importing this module does
-# not require matplotlib to be available at import time).
-# ------------------------------------------------------------------
-
 _RCPARAMS = {
     "font.family":          "sans-serif",
     "font.sans-serif":      ["Arial", "Liberation Sans", "DejaVu Sans"],
@@ -70,8 +64,8 @@ def select_teacher_param(
 
     Two-step procedure:
 
-    1. **Convergence filter** — keep only ``(param_col, seed)`` pairs whose
-       Train ``distill_mse`` is below *distill_threshold*.  Pairs that never
+    1. **Convergence filter** — keep only (param_col, seed) pairs whose
+       Train distill_mse is below *distill_threshold*.  Pairs that never
        distilled properly are excluded from selection entirely.
     2. **One-SEM rule** — among the remaining configs, pick the smallest
        hyperparameter value whose mean Val loss is within one SEM of the
@@ -80,17 +74,17 @@ def select_teacher_param(
     Parameters
     ----------
     df : pd.DataFrame
-        Output of :meth:`~medal.sweep.SweepResults.load_metrics`, containing
-        columns ``[param_col, "seed", "split", metric_col, "distill_mse"]``.
+        Output of medal.sweep.SweepResults.load_metrics, containing
+        columns [param_col, "seed", "split", metric_col, "distill_mse"].
     param_col : str
-        Column name of the swept hyperparameter (e.g. ``"perplexity"``).
+        Column name of the swept hyperparameter (e.g. "perplexity").
     metric_col : str
-        Loss column to minimise (default ``"recon_loss"``).
+        Loss column to minimise (default "recon_loss").
     val_split : str
-        Value in the ``"split"`` column to use for selection (default ``"Val"``).
+        Value in the "split" column to use for selection (default "Val").
     distill_threshold : float
         Maximum Train distillation MSE allowed for a model to be considered
-        converged (default ``1e-5``).
+        converged (default 1e-5).
 
     Returns
     -------
@@ -100,7 +94,7 @@ def select_teacher_param(
     Raises
     ------
     ValueError
-        If no ``(param_col, seed)`` pair passes the convergence filter.
+        If no (param_col, seed) pair passes the convergence filter.
     """
     import warnings
 
@@ -167,30 +161,23 @@ def plot_reconstruction_error(
     """
     Plot reconstruction loss vs. swept hyperparameter (tuning curve).
 
-    Three-row panel (Train / Val / Test), each showing mean ± SEM with
-    individual seed points.  A shaded 1-SEM band and a dashed vertical line
-    mark the selected optimal parameter on the Val row.
-
     Parameters
     ----------
     df : pd.DataFrame
-        Output of :meth:`~medal.sweep.SweepResults.load_metrics`.
+        Output of medal.sweep.SweepResults.load_metrics.
     opt_param : scalar
-        Optimal parameter value returned by :func:`select_teacher_param`.
+        Optimal parameter value returned by select_teacher_param.
     param_col : str
-        Column name of the swept hyperparameter (e.g. ``"perplexity"``).
+        Column name of the swept hyperparameter (e.g. "perplexity").
     show_boxplot : bool
-        When ``True``, adds a median boxplot column next to the mean line
-        panel.  Default ``False`` (mean only).
+        When True, adds a median boxplot column next to the mean line
+        panel.  Default False (mean only).
     xlabel : str, optional
-        x-axis label (defaults to ``param_col``).
+        x-axis label (defaults to param_col).
     figsize : tuple
     row_label_y, legend_kw, xtick_fontsize, share_x_lines
-        Forwarded to :func:`_plot_line_box_panel`.
+        Forwarded to _plot_line_box_panel.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
@@ -235,40 +222,32 @@ def plot_distortion_map(
     param_label: Optional[str] = None,
     colorbar_label: str = "Recon. MSE",
     figsize: Tuple[int, int] = (10, 5),
-) -> "plt.Figure":
+):
     """
     Two-row distortion figure for a single hyperparameter value.
-
-    Row 0: embedding coloured by class labels.
-    Row 1: embedding coloured by per-point reconstruction error (distortion map).
-    Columns: Train, Val, Test.
 
     Parameters
     ----------
     emb_data : dict
-        ``{param_val: {"Train": (Z, recon_errors, labels), ...}}``.
-        Built by :meth:`~medal.sweep.SweepResults.load_embeddings`.
+        {param_val: {"Train": (Z, recon_errors, labels), ...}}.
+        Built by medal.sweep.SweepResults.load_embeddings.
     opt_param : scalar
         Optimal parameter value from :func:`select_teacher_param`.
     param_col : str
         Column name of the swept hyperparameter (used in the figure title).
-    param : scalar or ``"best"``
-        Which hyperparameter value to display.  ``"best"`` uses ``opt_param``;
-        pass any value present in ``emb_data`` to display that instead.
+    param : scalar or "best". Which hyperparameter value to display. "best" uses opt_param;
+        pass any value present in emb_data to display that instead.
     palette : optional
         Colour palette for the label row (passed to seaborn).
     cmap : str
         Colourmap for the distortion row.
     param_label : str, optional
         Display name for the parameter in the figure title (defaults to
-        ``param_col``).
+        param_col).
     colorbar_label : str
         Label for the distortion colorbar.
     figsize : tuple
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
@@ -405,13 +384,6 @@ def _plot_distortion_panel(
     cmap: str = "BuGn",
     colorbar_label: str = "Recon. MSE",
 ):
-    """
-    2-row × 3-col panel for a single hyperparameter value.
-
-    Row 0: scatter coloured by class label.
-    Row 1: scatter coloured by per-point reconstruction error.
-    Columns: Train, Val, Test.
-    """
     import matplotlib.pyplot as plt
     import seaborn as sns
 
@@ -457,13 +429,10 @@ def _plot_distortion_panel(
         if col == 0:
             ax_dst.set_ylabel("Distortion", fontsize=10, fontweight="bold", labelpad=4)
 
-    # Colorbar aligned to the distortion row
     cb = fig.colorbar(sc, cax=cax)
     cb.ax.tick_params(labelsize=8, width=0.4, length=2)
     cb.outline.set_linewidth(0.4)
     cb.set_label(colorbar_label, fontsize=9, labelpad=2)
-
-    # Figure-level title
     fig.suptitle(title_str, fontsize=12, fontweight="bold", y=0.98)
 
 

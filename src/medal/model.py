@@ -89,7 +89,7 @@ class MEDAL(BaseEstimator, TransformerMixin):
         Width of each hidden layer (symmetric encoder/decoder).
     activation : str or nn.Module class
         Hidden-layer activation.  Pass a string (e.g. "ReLU", "SELU") or
-        a ``torch.nn`` class directly.
+        a torch.nn class directly.
     lambda_d : float
         Weight on the distillation loss relative to reconstruction loss.
     lr : float

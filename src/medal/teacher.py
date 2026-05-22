@@ -53,8 +53,8 @@ def build_param_grid(
     Returns
     -------
     list of dict
-        Each dict is a valid ``tc`` config to pass to
-        :func:`get_teacher_embeddings` or :func:`~medal.sweep.run_teacher_sweep`.
+        Each dict is a valid tc config to pass to
+        get_teacher_embeddings or medal.sweep.run_teacher_sweep.
     """
     if custom_grid is not None:
         return custom_grid
@@ -107,8 +107,7 @@ def get_teacher_embeddings(
         If given, pickle the fitted teacher model to this path.
     **teacher_kwargs
         Extra keyword arguments forwarded to the teacher algorithm.
-        These take precedence over ``random_state`` if ``random_state``
-        is already present in ``teacher_kwargs``.
+        These take precedence over random_state if random_state is already present in teacher_kwargs.
 
     Returns
     -------

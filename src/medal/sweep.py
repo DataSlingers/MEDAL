@@ -54,7 +54,7 @@ class SweepResults:
     teacher : str
         Teacher algorithm used in the sweep.
     param_name : str
-        Name of the swept hyperparameter (e.g. ``"perplexity"``).
+        Name of the swept hyperparameter (e.g. "perplexity").
     param_values : list
         Sorted list of unique hyperparameter values.
     seeds : list of int
@@ -80,7 +80,7 @@ class SweepResults:
     # ------------------------------------------------------------------
 
     def save(self):
-        """Write metadata to ``output_dir/sweep_metadata.json``."""
+        """Write metadata to output_dir/sweep_metadata.json."""
         meta = {
             "teacher": self.teacher,
             "param_name": self.param_name,
@@ -96,7 +96,7 @@ class SweepResults:
 
     @classmethod
     def load(cls, output_dir: str | Path) -> "SweepResults":
-        """Reconstruct from a previously saved ``sweep_metadata.json``."""
+        """Reconstruct from a previously saved sweep_metadata.json."""
         output_dir = Path(output_dir)
         with open(output_dir / "sweep_metadata.json") as f:
             meta = json.load(f)
@@ -123,22 +123,21 @@ class SweepResults:
         metrics for each (param_value, seed, split) combination.
 
         Train and Val splits are loaded from the files saved by
-        :func:`run_teacher_sweep` (``X_train.npy`` / ``X_val.npy`` in
-        ``output_dir``).  Only the held-out test set needs to be supplied.
+        run_teacher_sweep (X_train.npy / X_val.npy in
+        output_dir).  Only the held-out test set needs to be supplied.
 
         Parameters
         ----------
         X_test : np.ndarray, optional
-            Held-out test data.  When provided, a ``"Test"`` split is included
+            Held-out test data.  When provided, a "Test" split is included
             in the returned DataFrame.
 
         Returns
         -------
         pd.DataFrame
-            Columns: ``[param_name, seed, split, recon_mse, distill_mse,
-            recon_loss]``.  ``distill_mse`` is populated for the Train split
-            (where pre-computed teacher embeddings are available) and ``None``
-            for Val / Test.
+            Columns: [param_name, seed, split, recon_mse, distill_mse,
+            recon_loss].  distill_mse is populated for the Train split
+            (where pre-computed teacher embeddings are available) and None            for Val / Test.
         """
         ac = self.arch_config
 
@@ -216,33 +215,32 @@ class SweepResults:
         Parameters
         ----------
         y : array-like of shape (n_samples,)
-            Labels for the full *X* passed to :func:`run_teacher_sweep` (before
-            the internal val split).  The same ``random_state=0`` split used
-            during training is applied here to obtain matching ``y_train`` /
-            ``y_val`` arrays.
+            Labels for the full *X* passed to run_teacher_sweep (before
+            the internal val split).  The same random_state=0 split used
+            during training is applied here to obtain matching y_train /
+            y_val arrays.
         X_test : np.ndarray
-            Held-out test data (same array passed to :meth:`load_metrics`).
+            Held-out test data (same array passed to load_metrics).
         y_test : array-like of shape (n_test_samples,)
             Labels for the test split.
         params : list, optional
             Subset of param values to load.  Defaults to all
-            ``self.param_values``.
+            self.param_values.
         seed : int, optional
             Which seed's checkpoint to use for the embeddings.  Defaults to
-            the first seed in ``self.seeds``.
+            the first seed in self.seeds.
         val_size : float
-            Must match the ``val_size`` used in :func:`run_teacher_sweep`
-            (default ``0.2``).
+            Must match the val_size used in :func:`run_teacher_sweep`
+            (default 0.2).
 
         Returns
         -------
         emb_data : dict
-            ``{param_val: {"Train": (Z, recon_errors, labels),
+            {param_val: {"Train": (Z, recon_errors, labels),
                            "Val":   (Z, recon_errors, labels),
-                           "Test":  (Z, recon_errors, labels)}}``
-
-            *Z* is an ``(n_samples, latent_dim)`` array; *recon_errors* is a
-            per-sample MSE array of shape ``(n_samples,)``; *labels* is the
+                           "Test":  (Z, recon_errors, labels)}}
+            *Z* is an (n_samples, latent_dim) array; *recon_errors* is a
+            per-sample MSE array of shape (n_samples,); *labels* is the
             corresponding slice of *y* / *y_test*.
         """
         from sklearn.model_selection import train_test_split as _split
@@ -317,7 +315,7 @@ def run_teacher_sweep(
 ) -> SweepResults:
     """
     Run MEDAL over a teacher-hyperparameter sweep and return a
-    :class:`SweepResults` object.
+    SweepResults object.
 
     Parameters
     ----------
@@ -326,35 +324,35 @@ def run_teacher_sweep(
     output_dir : str or Path
         All embeddings, checkpoints, and metadata are written here.
     teacher : str
-        Teacher algorithm (``"tsne"``, ``"umap"``, ``"pca"``, etc.).
+        Teacher algorithm ("tsne", "umap", "pca", etc.).
     arch_config : dict
-        MEDAL architecture config — output of :func:`~medal.tuning.get_best_config`
-        or a hand-crafted dict with keys such as ``hidden_dims``, ``lambda_d``,
-        ``lr``, ``batch_size``, ``max_epochs``, etc.
+        MEDAL architecture config — output of medal.tuning.get_best_config
+        or a hand-crafted dict with keys such as hidden_dims, lambda_d,
+        lr, batch_size, max_epochs, etc.
     param_grid : list of dict, optional
         List of teacher hyperparameter configs.  Defaults to
-        :func:`~medal.teacher.build_param_grid` with standard log-spaced values.
+        medal.teacher.build_param_grid with standard log-spaced values.
     latent_dim : int
         Target embedding dimensionality.
     val_size : float
         Fraction of *X* held out as a validation set (used during training).
     seeds : list of int
-        Random seeds for the sweep.  Defaults to ``[0]``.
+        Random seeds for the sweep.  Defaults to [0].
     normalize_teacher : bool
         Whether to normalise teacher embeddings with
-        :class:`~medal.normalizer.GlobalEmbeddingNormalizer` before distillation.
+        medal.normalizer.GlobalEmbeddingNormalizer before distillation.
     distill_bands : list of (float, float), optional
         Target distillation-loss bands for stability-based early stopping.
     resources_per_trial : dict, optional
-        Ray Tune resource spec, e.g. ``{"cpu": 4, "gpu": 1}``.
+        Ray Tune resource spec, e.g. {"cpu": 4, "gpu": 1}.
     ray_storage_path : str, optional
         Where Ray Tune writes its trial logs and internal checkpoints.
-        Defaults to ``output_dir/ray_results``.  Set to a ``/tmp`` path to
-        avoid filling shared cluster storage, e.g. ``"/tmp/ray_results"``.
+        Defaults to output_dir/ray_results.  Set to a /tmp path to
+        avoid filling shared cluster storage, e.g. "/tmp/ray_results".
     mode : str
-        Label for the sweep mode, e.g. ``"teacher_sweep"``, ``"rank_sweep"``.
+        Label for the sweep mode, e.g. "teacher_sweep", "rank_sweep".
         Used as a suffix in the output filename:
-        ``sweep_summary_{teacher}_{mode}.csv``.  Defaults to ``"sweep"``.
+        sweep_summary_{teacher}_{mode}.csv.  Defaults to "sweep".
     verbose : bool
         Show progress information.
 
@@ -577,7 +575,7 @@ def _save_sweep_summary(
 ):
     """Extract per-trial final metrics from Ray Tune analysis and write a CSV.
 
-    The file is named ``sweep_summary_{teacher}_{mode}.csv`` so that summaries
+    The file is named sweep_summary_{teacher}_{mode}.csv so that summaries
     from different teachers (umap, tsne) and sweep modes (teacher_sweep,
     rank_sweep, etc.) do not overwrite one another.
 

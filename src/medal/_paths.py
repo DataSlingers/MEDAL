@@ -1,7 +1,7 @@
 """
 Centralised path helpers for teacher embeddings and student checkpoints.
 
-All paths are relative to a caller-supplied ``base_dir`` so there are
+All paths are relative to a caller-supplied base_dir so there are
 no hard-coded filesystem assumptions in the library.
 """
 from pathlib import Path

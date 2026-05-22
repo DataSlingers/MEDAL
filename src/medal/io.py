@@ -26,12 +26,12 @@ def load_model(
     dropout_rate: float = 0.0,
 ) -> AutoEncoder:
     """
-    Load a trained :class:`~medal.model.AutoEncoder` from a checkpoint file.
+    Load a trained medal.model.AutoEncoder from a checkpoint file.
 
     Parameters
     ----------
     ckpt_path : str or Path
-        Path to the ``.pt`` checkpoint saved by :meth:`MEDAL.fit`.
+        Path to the .pt checkpoint saved by :meth:`MEDAL.fit`.
     input_dim : int
         Must match the value used during training.
     hidden_dims : tuple of int
@@ -39,7 +39,7 @@ def load_model(
     latent_dim : int
         Must match the value used during training.
     activation : str
-        Activation class name (e.g. ``"SELU"``).
+        Activation class name (e.g. "SELU").
     use_batchnorm : bool
         Must match the value used during training.
 
@@ -104,10 +104,10 @@ def embed(
     Parameters
     ----------
     model : AutoEncoder
-        Trained model (from :func:`load_model` or ``medal.MEDAL.model``).
+        Trained model (from load_model or medal.MEDAL.model).
     X : array-like of shape (n_samples, input_dim)
     normalizer : GlobalEmbeddingNormalizer, optional
-        If given, apply ``normalizer.inverse_transform`` to the raw latent
+        If given, apply normalizer.inverse_transform to the raw latent
         codes so they are back in the original teacher's coordinate frame.
     device : str, optional
         Torch device string.  Defaults to the device the model is already on.

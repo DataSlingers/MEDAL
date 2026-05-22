@@ -79,20 +79,20 @@ class ArchSearchResults:
     best_config : dict
         Winning architecture config, cleaned of all Ray / internal keys.
         Ready to pass directly to :func:`~medal.sweep.run_teacher_sweep`
-        as ``arch_config``.
+        as arch_config.
     best_metrics : dict
         Last reported metrics from the best trial
-        (e.g. ``distill_loss``, ``recon_loss``, ``lr``).
+        (e.g. distill_loss, recon_loss, lr).
     results_df : pd.DataFrame
         One row per trial with config columns and final metrics.
     teacher_emb_path : Path
-        Path to the pre-computed teacher embedding (``.npy``).
+        Path to the pre-computed teacher embedding (.npy).
     output_dir : Path
         Root directory where all outputs were written.
     metric : str
-        Metric that was optimised (default ``"distill_loss"``).
+        Metric that was optimised (default "distill_loss").
     mode : str
-        ``"min"`` or ``"max"``.
+        "min" or "max".
     """
     best_config: Dict[str, Any]
     best_metrics: Dict[str, Any]
@@ -113,7 +113,7 @@ class ArchSearchResults:
         Return the architecture config dict for passing to
         :func:`~medal.sweep.run_teacher_sweep`.
 
-        This is an alias for ``self.best_config``; provided for
+        This is an alias for self.best_config; provided for
         discoverability when chaining calls::
 
             results = tune_medal_architecture(X_train, ...)
@@ -127,16 +127,16 @@ class ArchSearchResults:
 
         Saves two files:
 
-        * ``arch_search_results.csv`` — full per-trial results table.
-        * ``best_config.json`` — best architecture + optimisation config,
-          ready to pass as ``arch_config`` to :func:`~medal.sweep.run_teacher_sweep`.
+        * arch_search_results.csv — full per-trial results table.
+        * best_config.json — best architecture + optimisation config,
+          ready to pass as arch_config to :func:`~medal.sweep.run_teacher_sweep`.
 
         Parameters
         ----------
         path : str or Path, optional
             Destination for the CSV.  Defaults to
-            ``output_dir/arch_search_results.csv``.  The JSON is always
-            written to ``output_dir/best_config.json``.
+            output_dir/arch_search_results.csv.  The JSON is always
+            written to output_dir/best_config.json.
 
         Returns
         -------
@@ -165,13 +165,13 @@ class ArchSearchResults:
         """
         Reload a previously saved :class:`ArchSearchResults` from disk.
 
-        Reads ``best_config.json`` and ``arch_search_results.csv`` from
+        Reads best_config.json and arch_search_results.csv from
         *output_dir*.
 
         Parameters
         ----------
         output_dir : str or Path
-            The directory passed as ``output_dir`` to
+            The directory passed as output_dir to
             :func:`tune_medal_architecture`.
 
         Returns
@@ -181,8 +181,6 @@ class ArchSearchResults:
         Example
         -------
         ::
-
-            # --- in a later session ---
             result = medal.ArchSearchResults.load("output/arch_search")
             sweep  = medal.run_teacher_sweep(
                 X_train,
@@ -260,57 +258,57 @@ def tune_medal_architecture(
 
     A teacher embedding is computed once from a fixed set of teacher
     hyperparameters, then every candidate architecture is trained to
-    distil it.  The winner is returned in an :class:`ArchSearchResults`
-    object whose ``best_config`` can be passed directly to
-    :func:`~medal.sweep.run_teacher_sweep`.
+    distil it.  The winner is returned in an ArchSearchResults
+    object whose best_config can be passed directly to
+    medal.sweep.run_teacher_sweep.
 
     Parameters
     ----------
     X : np.ndarray of shape (n_samples, n_features)
         Training data (will be split internally into train / val).
     teacher : str
-        Teacher algorithm — ``"umap"``, ``"tsne"``, ``"pca"``,
-        ``"spectral"``, ``"phate"``, or ``"isomap"``.
+        Teacher algorithm — "umap", "tsne", "pca",
+        "spectral", "phate", or "isomap".
     teacher_params : dict, optional
-        Teacher hyperparameters (e.g. ``{"perplexity": 30}``).
-        Sensible defaults are used when ``None``.
+        Teacher hyperparameters (e.g. {"perplexity": 30}).
+        Sensible defaults are used when None.
     output_dir : str or Path, optional
         Directory for embeddings, checkpoints, and Ray results.
-        Defaults to ``./medal_arch_search``.
+        Defaults to ./medal_arch_search.
     latent_dim : int
-        Target embedding dimensionality (passed to the teacher and
+        Target embedding dimensiona (passed to the teacher and
         used as the AE bottleneck size).
     search_space : dict, optional
         Ray Tune parameter specs to *override* individual keys in the
-        default search space.  Use ``tune.grid_search`` /
-        ``tune.choice`` / ``tune.loguniform`` etc. directly::
+        default search space.  Use tune.grid_search /
+        tune.choice / tune.loguniform etc. directly::
 
             from ray import tune
             search_space = {"lambda_d": tune.grid_search([10, 100, 1000])}
 
     search_mode : {"grid", "random"}
-        ``"grid"``   — exhaustive grid over the default space
-                       (use ``num_samples=1``).
-        ``"random"`` — random sampling; set ``num_samples`` to the
+        "grid"   — exhaustive grid over the default space
+                       (use num_samples=1).
+        "random" — random sampling; set num_samples to the
                        desired number of trials (e.g. 20–50).
     num_samples : int
-        Number of Ray Tune samples.  For ``"grid"`` mode, leave at 1
-        (the grid is the source of trials).  For ``"random"`` mode,
+        Number of Ray Tune samples.  For "grid" mode, leave at 1
+        (the grid is the source of trials).  For "random" mode,
         this controls how many configs to sample.
     resources_per_trial : dict, optional
-        E.g. ``{"cpu": 4, "gpu": 1}``.  Defaults to one GPU per trial.
+        E.g. {"cpu": 4, "gpu": 1}.  Defaults to one GPU per trial.
     metric : str
-        Metric to optimise — ``"distill_loss"`` (default) or
-        ``"recon_loss"``.
+        Metric to optimise — "distill_loss" (default) or
+        "recon_loss".
     mode : str
-        ``"min"`` (default) or ``"max"``.
+        "min" (default) or "max".
     scheduler : ray.tune scheduler, optional
         Pass a pre-constructed Ray Tune scheduler such as
-        ``AsyncHyperBandScheduler(...)`` to enable early stopping.
-        ``None`` (default) runs every trial to completion.
+        AsyncHyperBandScheduler(...) to enable early stopping.
+        None (default) runs every trial to completion.
     ray_storage_path : str, optional
         Override Ray Tune's storage path for trial checkpoints.
-        Defaults to ``output_dir/ray_results``.
+        Defaults to output_dir/ray_results.
     seed : int
         Random seed used for the train/val split.
     test_size : float
@@ -318,22 +316,15 @@ def tune_medal_architecture(
     max_epochs : int
         Maximum training epochs per trial.
     save_results : bool
-        If ``True``, write ``arch_search_results.csv`` to ``output_dir``.
+        If True, write arch_search_results.csv to output_dir.
     verbose : bool
         Print progress and leaderboard.
 
     Returns
     -------
     ArchSearchResults
-        Structured result object.  ``result.best_config`` is ready for
-        :func:`~medal.sweep.run_teacher_sweep`.
-
-    Notes
-    -----
-    **Grid size**: the default grid has 8 hidden-dim configs × 8 lr
-    values × 5 lambda_d values = 320 trials.  For quick exploratory
-    runs, pass a smaller ``search_space`` override or use
-    ``search_mode="random"`` with a modest ``num_samples``.
+        Structured result object.  result.best_config is ready for
+        ~medal.sweep.run_teacher_sweep.
 
     Examples
     --------
@@ -499,7 +490,7 @@ def tune_architecture(
     teacher : str
     teacher_params : dict
         A single set of teacher hyperparameters,
-        e.g. ``{"perplexity": 30, "n_components": 2}``.
+        e.g. {"perplexity": 30, "n_components": 2}.
     latent_dim : int
     search_space : dict, optional
         Merged on top of (and overrides) the default search space.
@@ -507,7 +498,7 @@ def tune_architecture(
     num_samples : int
     resources_per_trial : dict, optional
     scheduler : str
-        ``"ahb"`` (AsyncHyperBand) or ``None``.
+        "ahb" (AsyncHyperBand) or None.
     base_config : dict, optional
         Base MEDAL training config overrides.
     verbose : bool
@@ -608,7 +599,7 @@ def get_best_config(
     top_k: int = 5,
 ) -> dict:
     """
-    Extract the best architecture config from a :func:`tune_architecture` result.
+    Extract the best architecture config from a tune_architecture result.
 
     Parameters
     ----------
@@ -620,7 +611,7 @@ def get_best_config(
     Returns
     -------
     dict
-        Architecture config ready for :func:`~medal.sweep.run_teacher_sweep`.
+        Architecture config ready for medal.sweep.run_teacher_sweep.
     """
     _print_leaderboard(analysis, metric=metric, top_k=top_k)
     best = analysis.get_best_config(metric, mode)
@@ -634,15 +625,6 @@ def get_best_config(
 def _build_arch_search_space(search_mode: str) -> dict:
     """
     Build the default architecture search space.
-
-    Default grid:
-    - ``hidden_dims``: [w]*d for w in {512, 1024}, d in {2, 3, 4, 5}  → 8 configs
-    - ``lr``: {5, 1} × 10^{-2...-5}                                   → 8 values
-    - ``lambda_d``: [100, 500, 1000, 5000, 10000]                      → 5 values
-    - ``activation``: "SELU" (fixed)
-    - ``use_batchnorm``: False (fixed; add to search_space to sweep it)
-
-    Total grid trials: 8 × 8 × 5 = 320.
     """
     if search_mode not in ("grid", "random"):
         raise ValueError(f"search_mode must be 'grid' or 'random', got {search_mode!r}")
@@ -772,12 +754,12 @@ def load_arch_config(output_dir: str | Path) -> dict:
     Parameters
     ----------
     output_dir : str or Path
-        The ``output_dir`` used when running :func:`tune_medal_architecture`.
+        The output_dir used when running tune_medal_architecture.
 
     Returns
     -------
     dict
-        Ready to pass as ``arch_config`` to :func:`~medal.sweep.run_teacher_sweep`.
+        Ready to pass as arch_config to medal.sweep.run_teacher_sweep.
 
     Example
     -------
