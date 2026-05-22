@@ -4,6 +4,8 @@
 
 # MEDAL
 
+[![DOI](https://zenodo.org/badge/1136663495.svg)](https://doi.org/10.5281/zenodo.20347572)
+
 **Manifold Embedding Distillation via Autoencoder Learning**
 
 MEDAL trains a neural network autoencoder to *distill* a pre-computed manifold embedding (e.g. t-SNE, UMAP) into a fast, reusable encoder. Given high-dimensional data `X` and a teacher embedding `Z`, the student minimises a combined objective:
