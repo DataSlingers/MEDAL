@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 940" width="1200" height="940">
   <defs>
     <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#F2C94C"/>
@@ -76,10 +76,4 @@
     <circle cx="520" cy="755" r="8"/><circle cx="600" cy="770" r="10"/><circle cx="680" cy="755" r="8"/>
   </g>
 
-  <!-- text -->
-  <text x="600" y="1030" text-anchor="middle" class="wordmark" font-size="106">MEDAL</text>
-  <text x="600" y="1092" text-anchor="middle" class="subtitle" font-size="32">MANIFOLD EMBEDDING DISTILLATION</text>
-  <line x1="284" y1="1137" x2="350" y2="1137" stroke="#D8A93A" stroke-width="4"/>
-  <text x="600" y="1148" text-anchor="middle" class="subtitle" font-size="29">VIA AUTOENCODER LEARNING</text>
-  <line x1="850" y1="1137" x2="916" y2="1137" stroke="#D8A93A" stroke-width="4"/>
 </svg>
